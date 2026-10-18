@@ -1,7 +1,7 @@
 {
   "name": "foco-semanal",
   "productName": "Foco Semanal",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Metas, temporadas y bloques de tiempo para planificar la semana.",
   "author": "Nacho",
   "license": "UNLICENSED",
@@ -23,7 +23,7 @@
     "productName": "Foco Semanal",
     "artifactName": "Foco-Semanal-Setup.${ext}",
     "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["main.js", "app/**/*", "build/icon.png", "package.json"],
+    "files": ["main.js", "preload.js", "app/**/*", "build/icon.png", "package.json"],
     "publish": [{ "provider": "github", "releaseType": "release" }],
     "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png" },
     "nsis": {
