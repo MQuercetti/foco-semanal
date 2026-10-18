@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Foco Semanal</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400..800&display=swap">
+<style>
+:root{--bg:#f5f6f8;--ink:#10131a;--ink-2:#566070;--line:#dde1e8;--accent:#2336d1;--on:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1015;--ink:#eef1f5;--ink-2:#9ba6b4;--line:#272f3a;--accent:#8fa3ff;--on:#0d1015}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Schibsted Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px 16px}
+main{max-width:640px;margin:0 auto;display:grid;gap:28px;padding-top:6vh}
+img{width:84px;height:84px;border-radius:20px}
+h1{margin:0;font-size:clamp(40px,9vw,64px);line-height:1;font-weight:800;letter-spacing:-.04em}
+p{margin:0;color:var(--ink-2);max-width:52ch}
+.dl{display:inline-block;background:var(--accent);color:var(--on);text-decoration:none;font-weight:700;padding:14px 22px;border-radius:12px;transition:transform .14s cubic-bezier(.23,1,.32,1)}
+.dl:active{transform:scale(.97)}
+.dl:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+ol{margin:0;padding-left:20px;color:var(--ink-2);display:grid;gap:8px;max-width:58ch}
+h2{margin:0 0 10px;font-size:18px;letter-spacing:-.01em}
+.note{border-top:1px solid var(--line);padding-top:18px;font-size:14px}
+@media (prefers-reduced-motion:reduce){.dl{transition:none}}
+</style>
+</head>
+<body>
+<main>
+  <img src="icon.png" alt="">
+  <div style="display:grid;gap:14px">
+    <h1>Foco Semanal</h1>
+    <p>Tus metas, temporadas y bloques de tiempo en una app para Windows. Tus datos se sincronizan con tu cuenta, así que ves lo mismo en todos tus dispositivos.</p>
+  </div>
+  <div><a class="dl" id="dl" href="#">Descargar para Windows</a></div>
+  <section>
+    <h2>Cómo instalarla</h2>
+    <ol>
+      <li>Descargá el archivo <b>Foco-Semanal-Setup.exe</b>.</li>
+      <li>Abrilo. Si Windows muestra "Windows protegió tu PC", tocá <b>Más información</b> y después <b>Ejecutar de todas formas</b>. Pasa porque la app no tiene firma paga.</li>
+      <li>Se instala sola, crea el acceso directo en el escritorio y se abre.</li>
+      <li>Entrá con tu email y contraseña. La próxima vez ya queda abierta.</li>
+    </ol>
+  </section>
+  <p class="note">Las actualizaciones se descargan solas al abrir la app, cuando hay una versión nueva.</p>
+</main>
+<script>
+(function () {
+  var host = location.hostname, m = /^([^.]+)\.github\.io$/.exec(host), repo = location.pathname.split('/').filter(Boolean)[0];
+  var a = document.getElementById('dl');
+  if (m && repo) a.href = 'https://github.com/' + m[1] + '/' + repo + '/releases/latest/download/Foco-Semanal-Setup.exe';
+  else a.href = 'https://github.com/';
+})();
+</script>
+</body>
+</html>
