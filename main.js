@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, protocol, net, session, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, shell, protocol, net, session, ipcMain, screen } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
@@ -29,19 +29,30 @@ function setLock(on) {
   locked = !!on;
   if (!win || win.isDestroyed()) return;
   if (locked) { win.setMinimizable(false); win.setKiosk(true); win.setAlwaysOnTop(true, 'screen-saver'); win.focus(); }
-  else { win.setAlwaysOnTop(false); win.setKiosk(false); win.setMinimizable(true); }
+  else { win.setAlwaysOnTop(false); win.setKiosk(false); win.setMinimizable(true); if (!win.isMaximized()) win.maximize(); }
 }
 ipcMain.on('foco-lock', (e, on) => { if (win && !win.isDestroyed() && e.sender === win.webContents) setLock(on); });
+ipcMain.on('foco-win', (e, cmd) => {
+  if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
+  if (cmd === 'state') { win.webContents.send('foco-max', win.isMaximized()); return; }
+  if (locked) return;
+  if (cmd === 'min') win.minimize();
+  else if (cmd === 'max') { if (win.isMaximized()) win.unmaximize(); else win.maximize(); }
+  else if (cmd === 'close') win.close();
+});
 function isInternal(url) { return url.startsWith('app://foco/'); }
 function openExternal(url) { if (/^https?:\/\//i.test(url)) shell.openExternal(url); }
 
 function createWindow() {
+  const wa = screen.getPrimaryDisplay().workAreaSize;
   win = new BrowserWindow({
-    width: 1280, height: 860, minWidth: 360, minHeight: 520, show: false,
+    width: wa.width, height: wa.height, minWidth: 360, minHeight: 520, show: false, frame: false,
     backgroundColor: '#f5f6f8', title: 'Foco Semanal', icon: path.join(__dirname, 'build', 'icon.png'), autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, preload: path.join(__dirname, 'preload.js') }
   });
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => { win.maximize(); win.show(); });
+  const sendMax = () => { if (win && !win.isDestroyed()) win.webContents.send('foco-max', win.isMaximized()); };
+  win.on('maximize', sendMax); win.on('unmaximize', sendMax);
   win.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { if (!isInternal(url)) { e.preventDefault(); openExternal(url); } });
   win.on('close', (e) => { if (locked) e.preventDefault(); });
@@ -59,7 +70,7 @@ function createWindow() {
     if (k === 'f11' || k === 'f5' || (input.control && ['w', 'r', 'n', 't'].includes(k)) || (input.alt && k === 'f4')) e.preventDefault();
   });
   win.webContents.on('render-process-gone', () => setLock(false));
-  win.webContents.on('did-finish-load', () => { if (locked) setLock(true); });
+  win.webContents.on('did-finish-load', () => { if (locked) setLock(true); sendMax(); });
   win.on('closed', () => { win = null; locked = false; });
   win.loadURL(START_URL);
 }
