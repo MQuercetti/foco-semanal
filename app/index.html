@@ -1723,6 +1723,66 @@ var L = (function () {
       del: function (id) { return run('readwrite', function (s) { return s['delete'](id); }); }
     };
   })();
+
+  /* Adjuntos del chat: se guardan en este dispositivo (IndexedDB) para que el asistente los siga viendo al reabrir la conversación */
+  var CF = (function () {
+    var dbp = null;
+    function open() {
+      if (dbp) return dbp;
+      dbp = new Promise(function (res, rej) {
+        try {
+          var r = indexedDB.open('foco-chat', 1);
+          r.onupgradeneeded = function () { r.result.createObjectStore('files', { keyPath: 'id' }); };
+          r.onsuccess = function () { res(r.result); };
+          r.onerror = function () { rej(r.error); };
+        } catch (e) { rej(e); }
+      });
+      return dbp;
+    }
+    function run(mode, fn) {
+      return open().then(function (db) {
+        return new Promise(function (res, rej) {
+          var t = db.transaction('files', mode), req = fn(t.objectStore('files'));
+          t.oncomplete = function () { res(req && req.result); };
+          t.onerror = function () { rej(t.error); }; t.onabort = function () { rej(t.error); };
+        });
+      });
+    }
+    return {
+      all: function () { return run('readonly', function (st) { return st.getAll(); }); },
+      get: function (id) { return run('readonly', function (st) { return st.get(id); }); },
+      put: function (it) { return run('readwrite', function (st) { return st.put(it); }); },
+      del: function (id) { return run('readwrite', function (st) { return st['delete'](id); }); }
+    };
+  })();
+  var cfMem = {}, cfReady = false;
+  function cfSync() {
+    var live = {}; ui.chat.msgs.forEach(function (m) { (m.files || []).forEach(function (f) { if (f.id) live[f.id] = 1; }); });
+    Object.keys(cfMem).forEach(function (id) { if (!live[id]) delete cfMem[id]; });
+    if (!cfReady) return;
+    CF.all().then(function (list) { (list || []).forEach(function (it) { if (!live[it.id]) CF.del(it.id).catch(function () { /* ya borrado */ }); }); }).catch(function () { /* sin almacenamiento */ });
+  }
+  function cfHydrate() {
+    CF.all().then(function (list) {
+      var by = {}; (list || []).forEach(function (it) { by[it.id] = it; });
+      ui.chat.msgs.forEach(function (m) { (m.files || []).forEach(function (f) { var it = by[f.id]; if (it && it.thumb && !f.thumb) f.thumb = it.thumb; f.gone = !it && !cfMem[f.id]; }); });
+      cfReady = true;
+      if (ui.tab === 'asistente' && !ui.chat.busy) safeRender();
+    }).catch(function () { cfReady = true; });
+  }
+  async function histAtts() {
+    var out = [], size = 0, LIM = 20000000, files = [];
+    ui.chat.msgs.forEach(function (m) { if (m.role === 'user') (m.files || []).forEach(function (f) { if (f.id) files.push(f); }); });
+    for (var i = files.length - 1; i >= 0 && out.length < 20; i--) {
+      var a = cfMem[files[i].id];
+      if (!a) { try { a = await CF.get(files[i].id); } catch (e) { a = null; } }
+      if (!a) continue;
+      var n = (a.data || a.text || '').length;
+      if (size + n > LIM) continue;
+      size += n; out.unshift(a);
+    }
+    return out;
+  }
   var matUrls = {}, matTexts = {};
   function matUrl(m) { if (!matUrls[m.id] && m.blob) matUrls[m.id] = URL.createObjectURL(m.blob); return matUrls[m.id]; }
   function matKind(m) {
@@ -2238,12 +2298,12 @@ var L = (function () {
       var f = files[i], nm = f.name || 'imagen', ext = (/\.([a-z0-9]+)$/i.exec(nm) || [])[1] || '';
       if (c.att.length >= MAX_ATT) { errs.push('Máximo ' + MAX_ATT + ' adjuntos por mensaje.'); break; }
       try {
-        if (/^image\//.test(f.type)) { var im = await shrinkImage(f); c.att.push({ kind: 'image', type: 'image/jpeg', name: nm, data: im.data, thumb: im.thumb }); }
+        if (/^image\//.test(f.type)) { var im = await shrinkImage(f); c.att.push({ id: uid('a_'), kind: 'image', type: 'image/jpeg', name: nm, data: im.data, thumb: im.thumb }); }
         else if (f.type === 'application/pdf' || ext.toLowerCase() === 'pdf') {
           if (f.size > MAX_PDF) { errs.push(nm + ' pesa más de 8 MB.'); continue; }
-          c.att.push({ kind: 'pdf', type: 'application/pdf', name: nm, data: await readB64(f) });
+          c.att.push({ id: uid('a_'), kind: 'pdf', type: 'application/pdf', name: nm, data: await readB64(f) });
         } else if (/^text\//.test(f.type) || /^(txt|md|csv|ics|json)$/i.test(ext)) {
-          var tx = await readTxt(f); c.att.push({ kind: 'text', name: nm, text: tx.slice(0, MAX_TXT) });
+          var tx = await readTxt(f); c.att.push({ id: uid('a_'), kind: 'text', name: nm, text: tx.slice(0, MAX_TXT) });
         } else errs.push(nm + ': solo se pueden adjuntar fotos, PDF y archivos de texto.');
       } catch (e) { errs.push('No pude leer ' + nm + '.'); }
     }
@@ -2254,11 +2314,11 @@ var L = (function () {
     try {
       var r = JSON.parse(localStorage.getItem(CHAT_LS) || '[]');
       return (Array.isArray(r) ? r : []).filter(function (m) { return m && (m.role === 'user' || m.role === 'bot') && typeof m.text === 'string'; }).slice(-40)
-        .map(function (m) { return { role: m.role, text: m.text.slice(0, 4000), files: Array.isArray(m.files) ? m.files.filter(function (f) { return f && typeof f.name === 'string'; }).slice(0, 5).map(function (f) { return { name: f.name.slice(0, 80), kind: f.kind === 'image' || f.kind === 'pdf' ? f.kind : 'text' }; }) : undefined, err: !!m.err, ops: Array.isArray(m.ops) ? m.ops : undefined, status: m.status, report: m.report }; });
+        .map(function (m) { return { role: m.role, text: m.text.slice(0, 4000), files: Array.isArray(m.files) ? m.files.filter(function (f) { return f && typeof f.name === 'string'; }).slice(0, 5).map(function (f) { return { id: typeof f.id === 'string' ? f.id.slice(0, 40) : '', name: f.name.slice(0, 80), kind: f.kind === 'image' || f.kind === 'pdf' ? f.kind : 'text' }; }) : undefined, err: !!m.err, ops: Array.isArray(m.ops) ? m.ops : undefined, status: m.status, report: m.report }; });
     } catch (e) { return []; }
   }
   function chatSave() {
-    try { localStorage.setItem(CHAT_LS, JSON.stringify(ui.chat.msgs.filter(function (m) { return !m.busy; }).slice(-40).map(function (m) { return m.files ? Object.assign({}, m, { files: m.files.map(function (f) { return { name: f.name, kind: f.kind }; }) }) : m; }))); } catch (e) { /* sin almacenamiento */ }
+    try { localStorage.setItem(CHAT_LS, JSON.stringify(ui.chat.msgs.filter(function (m) { return !m.busy; }).slice(-40).map(function (m) { return m.files ? Object.assign({}, m, { files: m.files.map(function (f) { return { id: f.id, name: f.name, kind: f.kind }; }) }) : m; }))); cfSync();; } catch (e) { /* sin almacenamiento */ }
   }
   function chatApplyMsg(m) {
     var before = {}, now = new Date();
@@ -2280,14 +2340,15 @@ var L = (function () {
     var c = ui.chat, atts = c.att.slice();
     if ((!text && !atts.length) || c.busy || !ai.sample) return;
     var now = new Date(), bot = { role: 'bot', text: '', busy: true };
-    c.msgs.push({ role: 'user', text: text.slice(0, 2000), files: atts.length ? atts.map(function (a) { return { name: a.name, kind: a.kind, thumb: a.thumb }; }) : undefined });
+    c.msgs.push({ role: 'user', text: text.slice(0, 2000), files: atts.length ? atts.map(function (a) { cfMem[a.id] = a; CF.put(a).catch(function () { /* queda solo en memoria */ }); return { id: a.id, name: a.name, kind: a.kind, thumb: a.thumb }; }) : undefined });
     c.msgs.push(bot); c.draft = ''; c.busy = true; c.att = []; c.attErr = '';
     var ctl = new AbortController(); ui.ai.ctl = ctl;
     render();
     var hist = c.msgs.slice(0, -1).map(function (m) { return { role: m.role, text: (m.text || '') + (m.files && m.files.length ? ' [Adjuntos: ' + m.files.map(function (f) { return f.name; }).join(', ') + ']' : '') }; });
     try {
+      var allAtts = await histAtts();
       var res = await ai.sample(L.buildChatPrompt(state, hist, now), {
-        signal: ctl.signal, cache: false, attachments: atts,
+        signal: ctl.signal, cache: false, attachments: allAtts,
         onText: function (u) {
           bot.text = L.parseOps(u.text, now).text;
           var el = $('#botTxt');
@@ -2672,7 +2733,7 @@ var L = (function () {
   /* ---------- Inicio ---------- */
   state = L.normalize(readLocal() || L.seed(new Date()));
   lastJson = L.stable(state);
-  ui.chat.msgs = chatLoad();
+  ui.chat.msgs = chatLoad(); cfHydrate();
   try { ui.chat.auto = localStorage.getItem(AUTO_LS) === '1'; } catch (e0) { ui.chat.auto = false; }
   render();
   setInterval(tick, 500);
