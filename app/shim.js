@@ -161,12 +161,20 @@
   /* ---------- IA con clave propia ---------- */
   async function ask(prompt, opts) {
     opts = opts || {};
+    var content = prompt;
+    if (opts.attachments && opts.attachments.length) {
+      content = opts.attachments.map(function (a) {
+        if (a.kind === 'image') return { type: 'image', source: { type: 'base64', media_type: a.type, data: a.data } };
+        if (a.kind === 'pdf') return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: a.data } };
+        return { type: 'text', text: 'Archivo adjunto "' + a.name + '":\n' + a.text };
+      }).concat([{ type: 'text', text: prompt }]);
+    }
     var key = lsGet(K_AI), model = opts.modelTier === 'quick' ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-5-5', stream = typeof opts.onText === 'function', res;
     try {
       res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST', signal: opts.signal,
         headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: model, max_tokens: 1800, stream: stream, messages: [{ role: 'user', content: prompt }] })
+        body: JSON.stringify({ model: model, max_tokens: 1800, stream: stream, messages: [{ role: 'user', content: content }] })
       });
     } catch (e) {
       if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'cancelado' };
