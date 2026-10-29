@@ -32,6 +32,7 @@ function setLock(on) {
   else { win.setAlwaysOnTop(false); win.setKiosk(false); win.setMinimizable(true); if (!win.isMaximized()) win.maximize(); }
 }
 ipcMain.on('foco-lock', (e, on) => { if (win && !win.isDestroyed() && e.sender === win.webContents) setLock(on); });
+ipcMain.handle('foco-version', () => app.getVersion());
 ipcMain.on('foco-win', (e, cmd) => {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
   if (cmd === 'state') { win.webContents.send('foco-max', win.isMaximized()); return; }

@@ -163,7 +163,7 @@
   var PROVIDERS = {
     anthropic: { name: 'Anthropic (Claude)', kind: 'anthropic', url: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5', ph: 'sk-ant-…' },
     openai: { name: 'OpenAI', url: 'https://api.openai.com/v1', model: 'gpt-4o', ph: 'sk-…', pdf: true, mct: true },
-    gemini: { name: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash', ph: 'AIza…' },
+    gemini: { name: 'Google Gemini (AI Studio)', kind: 'gemini', url: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-flash-latest', ph: 'AIza…' },
     openrouter: { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o', ph: 'sk-or-…' },
     groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', ph: 'gsk_…' },
     deepseek: { name: 'DeepSeek', url: 'https://api.deepseek.com/v1', model: 'deepseek-chat', ph: 'sk-…' },
@@ -177,12 +177,12 @@
     var old = lsGet(K_AI);
     return old ? { active: 'anthropic', providers: { anthropic: { key: old } } } : null;
   }
-  function pick(c) {
+  function pick(c, loose) {
     if (!c || !c.providers) return null;
     var id = c.active, d = PROVIDERS[id], u = c.providers[id];
     if (!d || !u) return null;
     var key = String(u.key || '').trim(), url = String((d.editUrl ? u.url : '') || d.url || '').trim().replace(/\/+$/, ''), model = String(u.model || d.model || '').trim();
-    if ((!key && !d.nokey) || !url || !model) return null;
+    if ((!key && !d.nokey) || !url || (!model && !loose)) return null;
     return { id: id, kind: d.kind || 'openai', key: key, url: url, model: model, pdf: !!d.pdf, mct: !!d.mct };
   }
   function activeP() { return pick(cfg); }
@@ -206,7 +206,24 @@
   function httpErr(status, body) {
     var c = status === 401 || status === 403 ? 'bad_key' : status === 429 ? 'rate_limited' : 'upstream_error', m = '';
     try { var j = JSON.parse(body); m = (j.error && (j.error.message || j.error)) || j.message || ''; } catch (e) { m = String(body || '').slice(0, 160); }
+    if (status === 400 && /api key not valid|api_key_invalid/i.test(String(m) + body)) c = 'bad_key';
     return { code: c, message: 'HTTP ' + status + (m ? ': ' + String(m).slice(0, 160) : ''), status: status };
+  }
+  async function listModels(c) {
+    var P = pick(c, true);
+    if (!P) throw { code: 'bad_key', message: 'Falta la clave o la dirección.' };
+    var url, headers = {};
+    if (P.kind === 'anthropic') { url = P.url + '/models?limit=100'; headers = { 'x-api-key': P.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }; }
+    else if (P.kind === 'gemini') { url = P.url + '/models?pageSize=200'; headers = { 'x-goog-api-key': P.key }; }
+    else { url = P.url + '/models'; if (P.key) headers = { authorization: 'Bearer ' + P.key }; }
+    var res;
+    try { res = await fetch(url, { headers: headers }); } catch (e) { throw { code: 'network', message: String(e) }; }
+    var tx = await res.text();
+    if (!res.ok) throw httpErr(res.status, tx);
+    var j = {}; try { j = JSON.parse(tx); } catch (e) { /* respuesta no JSON */ }
+    var ids = P.kind === 'gemini' ? (j.models || []).filter(function (m) { return (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0; }).map(function (m) { return String(m.name || '').replace(/^models\//, ''); })
+      : (j.data || j.models || []).map(function (m) { return m.id || m.name; });
+    return ids.filter(Boolean).slice(0, 300);
   }
   async function ask(prompt, opts) {
     opts = opts || {};
@@ -225,6 +242,14 @@
       url = P.url + '/messages';
       headers = { 'content-type': 'application/json', 'x-api-key': P.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
       body = { model: P.model, max_tokens: 1800, stream: stream, messages: [{ role: 'user', content: content }] };
+    } else if (P.kind === 'gemini') {
+      var parts = atts.map(function (a) {
+        if (a.kind === 'image' || a.kind === 'pdf') return { inline_data: { mime_type: a.kind === 'pdf' ? 'application/pdf' : a.type, data: a.data } };
+        return { text: 'Archivo adjunto "' + a.name + '":\n' + a.text };
+      }).concat([{ text: prompt }]);
+      url = P.url + '/models/' + encodeURIComponent(P.model) + (stream ? ':streamGenerateContent?alt=sse' : ':generateContent');
+      headers = { 'content-type': 'application/json', 'x-goog-api-key': P.key };
+      body = { contents: [{ role: 'user', parts: parts }], generationConfig: { maxOutputTokens: 8192 } };
     } else {
       var oc = prompt;
       if (atts.length) {
@@ -248,7 +273,13 @@
     }
     if (!res.ok) { var tx = ''; try { tx = await res.text(); } catch (e) { /* sin cuerpo */ } throw httpErr(res.status, tx); }
     var text = '', truncated = false;
+    function gtext(j) {
+      var cd = j.candidates && j.candidates[0];
+      if (cd && cd.finishReason === 'MAX_TOKENS') truncated = true;
+      return cd && cd.content && cd.content.parts ? cd.content.parts.map(function (x) { return typeof x.text === 'string' && !x.thought ? x.text : ''; }).join('') : '';
+    }
     function piece(j) {
+      if (P.kind === 'gemini') return gtext(j);
       if (P.kind === 'anthropic') {
         if (j.type === 'content_block_delta' && j.delta && j.delta.type === 'text_delta') return j.delta.text;
         if (j.type === 'message_delta' && j.delta && j.delta.stop_reason === 'max_tokens') truncated = true;
@@ -261,7 +292,8 @@
     try {
       if (!stream) {
         var j = await res.json();
-        if (P.kind === 'anthropic') { text = (j.content || []).map(function (b) { return b.type === 'text' ? b.text : ''; }).join(''); truncated = j.stop_reason === 'max_tokens'; }
+        if (P.kind === 'gemini') text = gtext(j);
+        else if (P.kind === 'anthropic') { text = (j.content || []).map(function (b) { return b.type === 'text' ? b.text : ''; }).join(''); truncated = j.stop_reason === 'max_tokens'; }
         else { var c0 = j.choices && j.choices[0]; var mc = c0 && c0.message && c0.message.content; text = typeof mc === 'string' ? mc : Array.isArray(mc) ? mc.map(function (b) { return b.text || ''; }).join('') : ''; truncated = !!(c0 && c0.finish_reason === 'length'); }
       } else {
         var rd = res.body.getReader(), dec = new TextDecoder(), buf = '';
@@ -336,12 +368,13 @@
         '<hr class="fx-hr"><h2 class="fx-h">IA del asistente</h2>' +
         '<label class="fx-f">Proveedor<select id="fxProv">' + Object.keys(PROVIDERS).map(function (k) { return '<option value="' + k + '">' + esc(PROVIDERS[k].name) + '</option>'; }).join('') + '</select></label>' +
         '<label class="fx-f">Clave de API<input id="fxKey" type="password" autocomplete="off" spellcheck="false"></label>' +
-        '<label class="fx-f">Modelo<input id="fxModel" type="text" autocomplete="off" spellcheck="false"></label>' +
+        '<label class="fx-f">Modelo<input id="fxModel" type="text" list="fxModels" autocomplete="off" spellcheck="false"><datalist id="fxModels"></datalist></label>' +
         '<label class="fx-f" id="fxUrlW">Dirección del servicio (URL base)<input id="fxUrl" type="text" autocomplete="off" spellcheck="false" placeholder="https://…/v1"></label>' +
         (s ? '<label class="fx-chk"><input type="checkbox" id="fxCloud" checked><span>Guardar en mi cuenta para usarla en todos mis dispositivos</span></label>' : '') +
         '<p class="fx-hint" id="fxHint"></p><p class="fx-msg" id="fxAiMsg" role="status"></p>' +
-        '<div class="fx-row"><button class="btn primary" type="button" id="fxSaveKey">Guardar</button><button class="btn" type="button" id="fxTest">Probar</button><button class="btn" type="button" id="fxClose">Cerrar</button></div></div>';
+        '<div class="fx-row"><button class="btn primary" type="button" id="fxSaveKey">Guardar</button><button class="btn" type="button" id="fxList">Ver modelos</button><button class="btn" type="button" id="fxTest">Probar</button><button class="btn" type="button" id="fxClose">Cerrar</button></div></div>';
       document.body.appendChild(el);
+      try { if (window.focoDesktop && window.focoDesktop.version) window.focoDesktop.version().then(function (v) { if (v) { var h = el.querySelector('h1'); if (h) h.insertAdjacentHTML('afterend', '<p class="fx-hint">Foco Semanal, versión ' + esc(v) + '</p>'); } }); } catch (e) { /* sin escritorio */ }
       var draft = JSON.parse(JSON.stringify(cfg || loadCfg() || { active: 'anthropic', providers: {} }));
       if (!draft.providers) draft.providers = {};
       var prov = PROVIDERS[draft.active] ? draft.active : 'anthropic', $f = function (id) { return el.querySelector(id); };
@@ -361,6 +394,15 @@
       el.querySelector('#fxClose').addEventListener('click', function () { el.remove(); });
       el.addEventListener('click', function (ev) { if (ev.target === el) el.remove(); });
       function finalCfg() { stash(); draft.active = prov; return JSON.parse(JSON.stringify(draft)); }
+      el.querySelector('#fxList').addEventListener('click', async function () {
+        var msg = $f('#fxAiMsg'), c = finalCfg();
+        msg.style.color = 'var(--ink-2)'; msg.textContent = 'Buscando modelos…';
+        try {
+          var ids = await listModels(c);
+          $f('#fxModels').innerHTML = ids.map(function (i) { return '<option value="' + esc(i) + '">'; }).join('');
+          msg.style.color = 'var(--good)'; msg.textContent = ids.length ? ids.length + ' modelos disponibles. Tocá el campo Modelo y elegí uno.' : 'No devolvió modelos. Escribí el nombre a mano.';
+        } catch (e) { msg.style.color = 'var(--danger)'; msg.textContent = e && e.code === 'bad_key' ? 'La clave no es válida o falta (' + (e.message || '') + ').' : e && e.code === 'network' ? 'No se pudo conectar. Revisá la dirección y tu conexión.' : 'No se pudo listar: ' + String((e && e.message) || e).slice(0, 140); }
+      });
       el.querySelector('#fxTest').addEventListener('click', async function () {
         var msg = $f('#fxAiMsg'), c = finalCfg(), prev = cfg;
         if (!pick(c)) { msg.style.color = 'var(--danger)'; msg.textContent = 'Falta la clave, el modelo o la dirección.'; return; }
