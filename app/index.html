@@ -1,4 +1,4 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0b5f57"><meta name="color-scheme" content="light dark"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Foco"><meta name="apple-mobile-web-app-status-bar-style" content="default"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/png" href="icon-192.png"><link rel="apple-touch-icon" href="apple-touch-icon.png"><script>try{var __t=JSON.parse(localStorage.getItem("foco-theme")||"{}");if(__t.mode==="light"||__t.mode==="dark")document.documentElement.setAttribute("data-theme",__t.mode);if(__t.accent)document.documentElement.setAttribute("data-accent",__t.accent)}catch(e){}</script><style>html{background:#edeff1}@media(prefers-color-scheme:dark){html:not([data-theme="light"]){background:#0f1316}}[hidden]{display:none!important}body{margin:0}.fx-acc{margin-top:2px}.fx-screen{position:fixed;inset:0;z-index:50;background:rgba(8,12,16,.6);display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto}.fx-card{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:20px;width:min(400px,100%);display:grid;gap:12px}.fx-card h1{font-size:24px}.fx-hint{color:var(--ink-2);font-size:13px}.fx-f{display:grid;gap:4px;font-size:13px;color:var(--ink-2)}.fx-f input{font-size:16px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0}.fx-msg{min-height:18px;font-size:13px;color:var(--danger)}.fx-row{display:flex;flex-wrap:wrap;gap:8px}.fx-hr{border:0;border-top:1px solid var(--line);margin:4px 0;width:100%}.fx-link{background:none;border:0;color:var(--ink-2);text-decoration:underline;cursor:pointer;font-size:13px;padding:4px 0;text-align:left}</style></head><body><script src="supabase.js"></script><script src="shim.js"></script>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0b5f57"><meta name="color-scheme" content="light dark"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Foco"><meta name="apple-mobile-web-app-status-bar-style" content="default"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/png" href="icon-192.png"><link rel="apple-touch-icon" href="apple-touch-icon.png"><script>try{var __t=JSON.parse(localStorage.getItem("foco-theme")||"{}");if(__t.mode==="light"||__t.mode==="dark")document.documentElement.setAttribute("data-theme",__t.mode);if(__t.accent)document.documentElement.setAttribute("data-accent",__t.accent)}catch(e){}</script><style>html{background:#edeff1}@media(prefers-color-scheme:dark){html:not([data-theme="light"]){background:#0f1316}}[hidden]{display:none!important}body{margin:0}.fx-acc{margin-top:2px}.fx-screen{position:fixed;inset:0;z-index:50;background:rgba(8,12,16,.6);display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto}.fx-card{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:20px;width:min(400px,100%);display:grid;gap:12px}.fx-card h1{font-size:24px}.fx-hint{color:var(--ink-2);font-size:13px}.fx-f{display:grid;gap:4px;font-size:13px;color:var(--ink-2)}.fx-f input{font-size:16px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0}.fx-msg{min-height:18px;font-size:13px;color:var(--danger)}.fx-row{display:flex;flex-wrap:wrap;gap:8px}.fx-hr{border:0;border-top:1px solid var(--line);margin:4px 0;width:100%}.fx-card{margin:auto}.fx-h{font-size:16px;margin:0}.fx-f select{font-size:16px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0}.fx-chk{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink-2)}.fx-chk input{width:18px;height:18px;margin:1px 0 0;flex:none}.fx-link{background:none;border:0;color:var(--ink-2);text-decoration:underline;cursor:pointer;font-size:13px;padding:4px 0;text-align:left}</style></head><body><script src="supabase.js"></script><script src="shim.js"></script>
 <title>Foco Semanal</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400..800&display=swap">
 <style>
@@ -721,6 +721,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 
 @media (max-width: 900px) { .nav-item { flex: 1 1 0; min-width: 0; } .nav-item span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; } }
 @media (max-width: 380px) { .nav-item { font-size: 10px; } }
+.diario-col { max-width: 760px; }
+body:not(.desk) { min-height: 100vh; }
 .col { user-select: none; }
 .stack > .panel + .panel { margin-top: 0; }
 </style>
@@ -1535,13 +1537,6 @@ var L = (function () {
       '<section class="dcard dash-enter" style="--i:5"><div class="card-head"><h2>Tiempo por meta</h2></div>' + donutHTML() + '</section></div></div>';
     return h;
   }
-  function recentTable() {
-    var list = state.sessions.slice(-6).reverse();
-    if (!list.length) return '<p class="empty">Cuando termines una sesión de estudio con el reloj, aparece acá.</p>';
-    var h = '<table class="tbl"><thead><tr><th>Sesión</th><th>Día</th><th>Duración</th></tr></thead><tbody>';
-    list.forEach(function (x) { h += '<tr><td><span class="nm" style="--gc:var(--c' + (x.color % 6) + ')"><i></i>' + esc(x.title) + '</span></td><td>' + esc(dayLabel(x.date).split(' · ')[0].replace(/^(\d)/, '$1')) + '</td><td>' + fmtDur(x.min) + '</td></tr>'; });
-    return h + '</tbody></table>';
-  }
   function searchResults(q) {
     q = q.toLowerCase().trim(); if (!q) return '';
     var ix = index(), out = [];
@@ -1554,38 +1549,6 @@ var L = (function () {
   }
 
   /* ---------- Hoy ---------- */
-  function agendaCard() {
-    var todayK = key(new Date()), ix = index(), items = [], h = '';
-    state.blocks.forEach(function (b) { if (b.date === todayK) items.push({ t: 'b', start: b.start, b: b }); });
-    state.busy.forEach(function (e) { if (e.date === todayK) items.push({ t: 'e', start: e.start, e: e }); });
-    items.sort(function (x, y) { return x.start - y.start; });
-    h += '<section class="card"><div class="card-head"><h2>Tu día</h2><button class="btn small primary" data-act="open-compose-today">Nuevo bloque</button></div>';
-    if (!items.length) h += '<p class="empty">No hay nada agendado para hoy. Creá un bloque con el botón de arriba o pedile al asistente que arme tu día.</p>';
-    else {
-      h += '<ul class="tl">';
-      items.forEach(function (it) {
-        if (it.t === 'e') {
-          h += '<li class="busy"><time>' + hm(it.e.start) + '–' + hm(it.e.start + it.e.dur) + '</time><span class="grow"><b>' + esc(it.e.title) + '</b><small>Calendario</small></span></li>';
-        } else {
-          var b = it.b, i = binfo(b, ix);
-          h += '<li class="' + (b.done ? 'done' : '') + '" style="' + cStyle(i.color) + '"><time>' + hm(b.start) + '–' + hm(b.start + b.dur) + '</time>' +
-            '<span class="grow"><b>' + esc(i.title) + '</b>' + (i.sub ? '<small>' + esc(i.sub) + '</small>' : '') + '</span>' +
-            (b.done ? '<button class="btn small ghost" data-act="tl-done" data-block-id="' + b.id + '">Deshacer</button><span class="chip">Hecho</span>'
-              : '<button class="btn small primary" data-act="focus-start-block" data-block-id="' + b.id + '">Estudiar</button><button class="btn small" data-act="tl-done" data-block-id="' + b.id + '">Hecho</button>') +
-            '<button class="btn small ghost" data-act="open-block" data-block-id="' + b.id + '">Editar</button></li>';
-        }
-      });
-      h += '</ul>';
-    }
-    h += '</section>';
-    return h;
-  }
-  function closeCard() {
-    var r = state.reflections[key(new Date())] || { went: '', change: '' };
-    return '<section class="card"><h2>Cierre del día</h2><p class="hint">Dos minutos para anotar qué salió bien y qué ajustás mañana.</p>' +
-      '<label class="field">¿Qué salió bien hoy?<textarea id="refWent" data-f="ref-went" maxlength="600">' + esc(r.went) + '</textarea></label>' +
-      '<label class="field">¿Qué ajustás para mañana?<textarea id="refChange" data-f="ref-change" maxlength="600">' + esc(r.change) + '</textarea></label></section>';
-  }
   function viewToday() {
     return '<div class="dash-head dash-enter"><h1>Hoy</h1><span>' + esc(longDate(new Date())) + '</span></div>' + dashHTML();
   }
@@ -1619,8 +1582,7 @@ var L = (function () {
   }
   function viewDiario() {
     return head('Diario', '<label class="sr" for="jSearch">Buscar en el diario</label><input id="jSearch" class="searchbar" type="text" placeholder="Buscar en el diario" value="' + esc(ui.q) + '" autocomplete="off">') +
-      '<div class="two-col"><div class="stack">' + diaryCard() + '<div id="jBody">' + diarioBody() + '</div></div>' +
-      '<div class="stack">' + agendaCard() + closeCard() + '<section class="card"><h2>Sesiones recientes</h2>' + recentTable() + '</section></div></div>';
+      '<div class="stack diario-col">' + diaryCard() + '<div id="jBody">' + diarioBody() + '</div></div>';
   }
 
   /* ---------- Semana ---------- */
@@ -1949,7 +1911,7 @@ var L = (function () {
   function viewChat() {
     var msgs = ui.chat.msgs, h = head('Asistente', msgs.length ? '<button class="btn small" data-act="chat-new">Nueva conversación</button>' : '');
     if (ai.checked && !aiOn()) {
-      return h + '<section class="panel"><h2>Falta tu clave de Anthropic</h2><p class="hint">El asistente usa tu propia clave. Cargala en Cuenta (en el menú) y vuelve a esta pantalla. Mientras tanto, todo lo demás funciona.</p></section>';
+      return h + '<section class="panel"><h2>Conectá una IA</h2><p class="hint">El asistente usa tu propia clave. En Cuenta (en el menú) elegí Anthropic, OpenAI, Gemini, OpenRouter, Groq, DeepSeek, Mistral, Ollama u otro servicio compatible, pegá la clave y tocá Probar. Mientras tanto, todo lo demás funciona.</p></section>';
     }
     h += '<div class="chat"><div class="chat-log" id="chatLog" aria-live="polite">';
     if (!msgs.length) {
@@ -2252,10 +2214,12 @@ var L = (function () {
       ui.ai.denied = true;
       return 'La IA no está disponible: no se permitió su uso o tu cuenta no la incluye. El resto de la app sigue funcionando.';
     }
-    if (c === 'bad_key') return 'La clave de Anthropic no funciona. Revisala en Cuenta.';
+    if (c === 'bad_key') return 'La clave de la IA no funciona. Revisala en Cuenta.';
+    if (c === 'network') return 'No se pudo conectar con la IA. Revisá tu conexión y la dirección del servicio en Cuenta.';
+    if (c === 'upstream_error' && e.message && /^HTTP/.test(e.message)) return 'La IA rechazó el pedido (' + String(e.message).slice(0, 160) + '). Revisá el modelo en Cuenta; si mandaste una foto, el modelo tiene que poder ver imágenes.';
     if (c === 'rate_limited') return 'Llegaste al límite de uso por ahora. Probá de nuevo en un rato.';
     if (c === 'session_expired') return 'Tu sesión venció. Volvé a abrir la página e iniciá sesión.';
-    return 'No se pudo conectar con Claude. Probá de nuevo.';
+    return 'No se pudo usar la IA. Probá de nuevo.';
   }
   var CHAT_LS = 'foco-chat', AUTO_LS = 'foco-chat-auto';
 

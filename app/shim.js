@@ -158,38 +158,111 @@
   var dbApi = { doc: function () { return makeDoc(); }, collection: function () { throw new Error('no usado'); } };
   var userApi = { id: userId, isOwner: function () { return true; }, canEdit: function () { return true; }, can: function () { return true; } };
 
-  /* ---------- IA con clave propia ---------- */
+  /* ---------- IA con clave propia (Anthropic y cualquier servicio compatible con OpenAI) ---------- */
+  var K_CFG = 'foco-ai-config';
+  var PROVIDERS = {
+    anthropic: { name: 'Anthropic (Claude)', kind: 'anthropic', url: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5', ph: 'sk-ant-…' },
+    openai: { name: 'OpenAI', url: 'https://api.openai.com/v1', model: 'gpt-4o', ph: 'sk-…', pdf: true, mct: true },
+    gemini: { name: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash', ph: 'AIza…' },
+    openrouter: { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o', ph: 'sk-or-…' },
+    groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', ph: 'gsk_…' },
+    deepseek: { name: 'DeepSeek', url: 'https://api.deepseek.com/v1', model: 'deepseek-chat', ph: 'sk-…' },
+    mistral: { name: 'Mistral', url: 'https://api.mistral.ai/v1', model: 'mistral-large-latest', ph: '' },
+    ollama: { name: 'Ollama (en tu compu)', url: 'http://localhost:11434/v1', model: 'llama3.2', ph: 'No hace falta', nokey: true, editUrl: true },
+    custom: { name: 'Otro (compatible con OpenAI)', url: '', model: '', ph: 'Clave (si el servicio la pide)', nokey: true, editUrl: true }
+  };
+  var cfg = null;
+  function loadCfg() {
+    try { var c = JSON.parse(lsGet(K_CFG) || 'null'); if (c && c.providers && typeof c.providers === 'object') return c; } catch (e) { /* configuración dañada */ }
+    var old = lsGet(K_AI);
+    return old ? { active: 'anthropic', providers: { anthropic: { key: old } } } : null;
+  }
+  function pick(c) {
+    if (!c || !c.providers) return null;
+    var id = c.active, d = PROVIDERS[id], u = c.providers[id];
+    if (!d || !u) return null;
+    var key = String(u.key || '').trim(), url = String((d.editUrl ? u.url : '') || d.url || '').trim().replace(/\/+$/, ''), model = String(u.model || d.model || '').trim();
+    if ((!key && !d.nokey) || !url || !model) return null;
+    return { id: id, kind: d.kind || 'openai', key: key, url: url, model: model, pdf: !!d.pdf, mct: !!d.mct };
+  }
+  function activeP() { return pick(cfg); }
+  async function cloudLoad() {
+    try {
+      var s = sb ? await currentSession() : null;
+      if (!s) return null;
+      var r = await sb.from('ai_settings').select('config').eq('user_id', s.user.id).maybeSingle();
+      return r && !r.error && r.data && r.data.config && r.data.config.providers ? r.data.config : null;
+    } catch (e) { return null; }
+  }
+  async function cloudSave(c) {
+    var s = await currentSession(); if (!s) throw new Error('sin sesión');
+    var r = await sb.from('ai_settings').upsert({ user_id: s.user.id, config: c, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (r.error) throw r.error;
+  }
+  async function cloudDel() {
+    var s = await currentSession(); if (!s) return;
+    await sb.from('ai_settings').delete().eq('user_id', s.user.id);
+  }
+  function httpErr(status, body) {
+    var c = status === 401 || status === 403 ? 'bad_key' : status === 429 ? 'rate_limited' : 'upstream_error', m = '';
+    try { var j = JSON.parse(body); m = (j.error && (j.error.message || j.error)) || j.message || ''; } catch (e) { m = String(body || '').slice(0, 160); }
+    return { code: c, message: 'HTTP ' + status + (m ? ': ' + String(m).slice(0, 160) : ''), status: status };
+  }
   async function ask(prompt, opts) {
     opts = opts || {};
-    var content = prompt;
-    if (opts.attachments && opts.attachments.length) {
-      content = opts.attachments.map(function (a) {
-        if (a.kind === 'image') return { type: 'image', source: { type: 'base64', media_type: a.type, data: a.data } };
-        if (a.kind === 'pdf') return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: a.data } };
-        return { type: 'text', text: 'Archivo adjunto "' + a.name + '":\n' + a.text };
-      }).concat([{ type: 'text', text: prompt }]);
+    var P = activeP();
+    if (!P) throw { code: 'bad_key', message: 'sin configurar' };
+    var atts = opts.attachments || [], stream = typeof opts.onText === 'function', res, url, headers, body;
+    if (P.kind === 'anthropic') {
+      var content = prompt;
+      if (atts.length) {
+        content = atts.map(function (a) {
+          if (a.kind === 'image') return { type: 'image', source: { type: 'base64', media_type: a.type, data: a.data } };
+          if (a.kind === 'pdf') return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: a.data } };
+          return { type: 'text', text: 'Archivo adjunto "' + a.name + '":\n' + a.text };
+        }).concat([{ type: 'text', text: prompt }]);
+      }
+      url = P.url + '/messages';
+      headers = { 'content-type': 'application/json', 'x-api-key': P.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
+      body = { model: P.model, max_tokens: 1800, stream: stream, messages: [{ role: 'user', content: content }] };
+    } else {
+      var oc = prompt;
+      if (atts.length) {
+        oc = atts.map(function (a) {
+          if (a.kind === 'image') return { type: 'image_url', image_url: { url: 'data:' + a.type + ';base64,' + a.data } };
+          if (a.kind === 'pdf') return P.pdf ? { type: 'file', file: { filename: a.name, file_data: 'data:application/pdf;base64,' + a.data } } : { type: 'text', text: '[Adjuntó el PDF "' + a.name + '", pero este proveedor no lee PDF. Pedile que lo mande como foto o texto.]' };
+          return { type: 'text', text: 'Archivo adjunto "' + a.name + '":\n' + a.text };
+        }).concat([{ type: 'text', text: prompt }]);
+      }
+      url = P.url + '/chat/completions';
+      headers = { 'content-type': 'application/json' };
+      if (P.key) headers.authorization = 'Bearer ' + P.key;
+      body = { model: P.model, stream: stream, messages: [{ role: 'user', content: oc }] };
+      body[P.mct ? 'max_completion_tokens' : 'max_tokens'] = 1800;
     }
-    var key = lsGet(K_AI), model = opts.modelTier === 'quick' ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-5-5', stream = typeof opts.onText === 'function', res;
     try {
-      res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST', signal: opts.signal,
-        headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: model, max_tokens: 1800, stream: stream, messages: [{ role: 'user', content: content }] })
-      });
+      res = await fetch(url, { method: 'POST', signal: opts.signal, headers: headers, body: JSON.stringify(body) });
     } catch (e) {
       if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'cancelado' };
-      throw { code: 'upstream_error', message: String(e) };
+      throw { code: 'network', message: String(e) };
     }
-    if (!res.ok) {
-      var c = res.status === 401 || res.status === 403 ? 'bad_key' : res.status === 429 ? 'rate_limited' : 'upstream_error';
-      throw { code: c, message: 'HTTP ' + res.status };
-    }
+    if (!res.ok) { var tx = ''; try { tx = await res.text(); } catch (e) { /* sin cuerpo */ } throw httpErr(res.status, tx); }
     var text = '', truncated = false;
+    function piece(j) {
+      if (P.kind === 'anthropic') {
+        if (j.type === 'content_block_delta' && j.delta && j.delta.type === 'text_delta') return j.delta.text;
+        if (j.type === 'message_delta' && j.delta && j.delta.stop_reason === 'max_tokens') truncated = true;
+        return '';
+      }
+      var ch = j.choices && j.choices[0];
+      if (ch && ch.finish_reason === 'length') truncated = true;
+      return (ch && ch.delta && typeof ch.delta.content === 'string') ? ch.delta.content : '';
+    }
     try {
       if (!stream) {
         var j = await res.json();
-        text = (j.content || []).map(function (b) { return b.type === 'text' ? b.text : ''; }).join('');
-        truncated = j.stop_reason === 'max_tokens';
+        if (P.kind === 'anthropic') { text = (j.content || []).map(function (b) { return b.type === 'text' ? b.text : ''; }).join(''); truncated = j.stop_reason === 'max_tokens'; }
+        else { var c0 = j.choices && j.choices[0]; var mc = c0 && c0.message && c0.message.content; text = typeof mc === 'string' ? mc : Array.isArray(mc) ? mc.map(function (b) { return b.text || ''; }).join('') : ''; truncated = !!(c0 && c0.finish_reason === 'length'); }
       } else {
         var rd = res.body.getReader(), dec = new TextDecoder(), buf = '';
         for (;;) {
@@ -200,9 +273,11 @@
           for (var i = 0; i < lines.length; i++) {
             var ln = lines[i].trim();
             if (ln.indexOf('data:') !== 0) continue;
-            var ev; try { ev = JSON.parse(ln.slice(5)); } catch (e) { continue; }
-            if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') { text += ev.delta.text; opts.onText({ text: text, delta: ev.delta.text }); }
-            else if (ev.type === 'message_delta' && ev.delta && ev.delta.stop_reason === 'max_tokens') truncated = true;
+            var raw = ln.slice(5).trim();
+            if (raw === '[DONE]') continue;
+            var ev; try { ev = JSON.parse(raw); } catch (e) { continue; }
+            var d = piece(ev);
+            if (d) { text += d; opts.onText({ text: text, delta: d }); }
           }
         }
       }
@@ -237,7 +312,12 @@
     use: async function (name) {
       if (name === 'db') return sb ? dbApi : null;
       if (name === 'user') return sb ? userApi : null;
-      if (name === 'sample') return lsGet(K_AI) ? sampleFn : null;
+      if (name === 'sample') {
+        cfg = loadCfg();
+        var cc = await Promise.race([cloudLoad(), new Promise(function (r) { setTimeout(function () { r(null); }, 3500); })]);
+        if (cc) { cfg = cc; lsSet(K_CFG, JSON.stringify(cc)); }
+        return activeP() ? sampleFn : null;
+      }
       if (name === 'downloads') return dlApi;
       return null;
     }
@@ -253,15 +333,51 @@
       el.innerHTML = '<div class="fx-card" role="dialog" aria-label="Cuenta"><h1>Cuenta</h1>' +
         '<p class="fx-hint">' + (s ? 'Sesión iniciada como <b>' + esc(s.user.email) + '</b>.' : 'Estás usando la app solo en este dispositivo.') + '</p>' +
         (s ? '<button class="btn danger" type="button" id="fxOut" data-ok="0">Cerrar sesión</button>' : '<button class="btn primary" type="button" id="fxGo">Entrar o crear cuenta</button>') +
-        '<hr class="fx-hr"><label class="fx-f">Clave de API de Anthropic (para planificar y el coaching con IA)<input id="fxKey" type="password" autocomplete="off" placeholder="sk-ant-…" value="' + esc(key) + '"></label>' +
-        '<p class="fx-hint">La clave se guarda solo en este dispositivo y las consultas se pagan según uso. Si la dejás vacía, la IA queda oculta.</p>' +
-        '<div class="fx-row"><button class="btn primary" type="button" id="fxSaveKey">Guardar clave</button><button class="btn" type="button" id="fxClose">Cerrar</button></div></div>';
+        '<hr class="fx-hr"><h2 class="fx-h">IA del asistente</h2>' +
+        '<label class="fx-f">Proveedor<select id="fxProv">' + Object.keys(PROVIDERS).map(function (k) { return '<option value="' + k + '">' + esc(PROVIDERS[k].name) + '</option>'; }).join('') + '</select></label>' +
+        '<label class="fx-f">Clave de API<input id="fxKey" type="password" autocomplete="off" spellcheck="false"></label>' +
+        '<label class="fx-f">Modelo<input id="fxModel" type="text" autocomplete="off" spellcheck="false"></label>' +
+        '<label class="fx-f" id="fxUrlW">Dirección del servicio (URL base)<input id="fxUrl" type="text" autocomplete="off" spellcheck="false" placeholder="https://…/v1"></label>' +
+        (s ? '<label class="fx-chk"><input type="checkbox" id="fxCloud" checked><span>Guardar en mi cuenta para usarla en todos mis dispositivos</span></label>' : '') +
+        '<p class="fx-hint" id="fxHint"></p><p class="fx-msg" id="fxAiMsg" role="status"></p>' +
+        '<div class="fx-row"><button class="btn primary" type="button" id="fxSaveKey">Guardar</button><button class="btn" type="button" id="fxTest">Probar</button><button class="btn" type="button" id="fxClose">Cerrar</button></div></div>';
       document.body.appendChild(el);
+      var draft = JSON.parse(JSON.stringify(cfg || loadCfg() || { active: 'anthropic', providers: {} }));
+      if (!draft.providers) draft.providers = {};
+      var prov = PROVIDERS[draft.active] ? draft.active : 'anthropic', $f = function (id) { return el.querySelector(id); };
+      function stash() { var d = PROVIDERS[prov]; draft.providers[prov] = { key: $f('#fxKey').value.trim(), model: $f('#fxModel').value.trim(), url: $f('#fxUrl').value.trim() }; if (!draft.providers[prov].key && !d.nokey) delete draft.providers[prov]; }
+      function show() {
+        var d = PROVIDERS[prov], u = draft.providers[prov] || {};
+        $f('#fxProv').value = prov;
+        $f('#fxKey').value = u.key || ''; $f('#fxKey').placeholder = d.ph || '';
+        $f('#fxModel').value = u.model || ''; $f('#fxModel').placeholder = d.model || 'Nombre del modelo';
+        $f('#fxUrl').value = u.url || ''; $f('#fxUrl').placeholder = d.url || 'https://…/v1';
+        $f('#fxUrlW').hidden = !d.editUrl;
+        $f('#fxHint').textContent = prov === 'ollama' ? 'Ollama corre en tu compu y no cobra. Tiene que estar abierto y permitir este origen (OLLAMA_ORIGINS).' : prov === 'custom' ? 'Sirve cualquier servicio con la API de chat de OpenAI (LM Studio, Together, Fireworks, un proxy propio…). Poné la URL base y el modelo.' : 'Las consultas se cobran según uso al proveedor. Podés dejar cargadas varias claves y cambiar de proveedor cuando quieras. Si el modelo ya no existe, escribí el nombre del vigente.';
+        $f('#fxAiMsg').textContent = '';
+      }
+      show();
+      $f('#fxProv').addEventListener('change', function () { stash(); prov = $f('#fxProv').value; show(); });
       el.querySelector('#fxClose').addEventListener('click', function () { el.remove(); });
       el.addEventListener('click', function (ev) { if (ev.target === el) el.remove(); });
-      el.querySelector('#fxSaveKey').addEventListener('click', function () {
-        var v = el.querySelector('#fxKey').value.trim();
-        if (v) lsSet(K_AI, v); else lsDel(K_AI);
+      function finalCfg() { stash(); draft.active = prov; return JSON.parse(JSON.stringify(draft)); }
+      el.querySelector('#fxTest').addEventListener('click', async function () {
+        var msg = $f('#fxAiMsg'), c = finalCfg(), prev = cfg;
+        if (!pick(c)) { msg.style.color = 'var(--danger)'; msg.textContent = 'Falta la clave, el modelo o la dirección.'; return; }
+        msg.style.color = 'var(--ink-2)'; msg.textContent = 'Probando…';
+        cfg = c;
+        try { var r = await ask('Respondé solo con la palabra OK.', {}); msg.style.color = 'var(--good)'; msg.textContent = 'Funciona. Respondió: ' + r.text.trim().slice(0, 40); }
+        catch (e) { msg.style.color = 'var(--danger)'; msg.textContent = e && e.code === 'bad_key' ? 'La clave no es válida (' + (e.message || '') + ').' : e && e.code === 'network' ? 'No se pudo conectar. Revisá la dirección y tu conexión.' : 'No funcionó: ' + String((e && e.message) || e).slice(0, 140); }
+        cfg = prev;
+      });
+      el.querySelector('#fxSaveKey').addEventListener('click', async function () {
+        var c = finalCfg(), has = Object.keys(c.providers).length > 0, cl = $f('#fxCloud'), msg = $f('#fxAiMsg');
+        if (has) lsSet(K_CFG, JSON.stringify(c)); else lsDel(K_CFG);
+        lsDel(K_AI);
+        if (s) {
+          try { if (has && cl && cl.checked) await cloudSave(c); else await cloudDel(); }
+          catch (e) { msg.style.color = 'var(--danger)'; msg.textContent = 'Se guardó en este dispositivo, pero no en la cuenta: ' + String((e && e.message) || e).slice(0, 100); return; }
+        }
         location.reload();
       });
       var out = el.querySelector('#fxOut');

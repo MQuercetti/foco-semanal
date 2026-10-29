@@ -12,7 +12,7 @@ const CSP = [
   "img-src 'self' app: data: blob:",
   "frame-src blob:",
   "media-src 'self' blob:",
-  "connect-src 'self' app: https://*.supabase.co wss://*.supabase.co https://api.anthropic.com",
+  "connect-src 'self' app: https: wss://*.supabase.co http://localhost:* http://127.0.0.1:*",
   "object-src 'none'",
   "base-uri 'none'"
 ].join('; ');
