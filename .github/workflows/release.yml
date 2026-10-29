@@ -31,6 +31,6 @@ jobs:
           target_commitish: ${{ github.sha }}
           make_latest: true
           files: |
-            dist/Foco-Semanal-Setup.exe
-            dist/Foco-Semanal-Setup.exe.blockmap
+            dist/Foco-Semanal-Setup-*.exe
+            dist/Foco-Semanal-Setup-*.exe.blockmap
             dist/latest.yml

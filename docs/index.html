@@ -35,7 +35,7 @@ h2{margin:0 0 10px;font-size:18px;letter-spacing:-.01em}
   <section>
     <h2>Cómo instalarla</h2>
     <ol>
-      <li>Descargá el archivo <b>Foco-Semanal-Setup.exe</b>.</li>
+      <li>Descargá el archivo <b>Foco-Semanal-Setup-<span id="ver">…</span>.exe</b>.</li>
       <li>Abrilo. Si Windows muestra "Windows protegió tu PC", tocá <b>Más información</b> y después <b>Ejecutar de todas formas</b>. Pasa porque la app no tiene firma paga.</li>
       <li>Se instala sola, crea el acceso directo en el escritorio y se abre.</li>
       <li>Entrá con tu email y contraseña. La próxima vez ya queda abierta.</li>
@@ -47,8 +47,14 @@ h2{margin:0 0 10px;font-size:18px;letter-spacing:-.01em}
 (function () {
   var host = location.hostname, m = /^([^.]+)\.github\.io$/.exec(host), repo = location.pathname.split('/').filter(Boolean)[0];
   var a = document.getElementById('dl');
-  if (m && repo) a.href = 'https://github.com/' + m[1] + '/' + repo + '/releases/latest/download/Foco-Semanal-Setup.exe';
-  else a.href = 'https://github.com/';
+  if (m && repo) {
+    var rel = 'https://github.com/' + m[1] + '/' + repo + '/releases/latest';
+    a.href = rel;
+    fetch('https://api.github.com/repos/' + m[1] + '/' + repo + '/releases/latest').then(function (r) { return r.json(); }).then(function (j) {
+      var x = (j.assets || []).filter(function (s) { return /^Foco-Semanal-Setup-.*\.exe$/.test(s.name); })[0];
+      if (x) { a.href = x.browser_download_url; a.textContent = 'Descargar para Windows · versión ' + j.tag_name.replace(/^v/, ''); document.getElementById('ver').textContent = j.tag_name.replace(/^v/, ''); }
+    }).catch(function () { /* queda el link a Releases */ });
+  } else a.href = 'https://github.com/';
 })();
 </script>
 </body>
