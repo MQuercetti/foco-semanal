@@ -34,3 +34,11 @@ self.addEventListener('fetch', function (e) {
   if (u.origin === self.location.origin) { e.respondWith(netFirst(req, req.mode === 'navigate' ? 'index.html' : null)); return; }
   if (u.hostname === 'fonts.googleapis.com' || u.hostname === 'fonts.gstatic.com') e.respondWith(swr(req));
 });
+
+self.addEventListener('notificationclick', function (e) {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (cs) {
+    for (var i = 0; i < cs.length; i++) { if ('focus' in cs[i]) return cs[i].focus(); }
+    return self.clients.openWindow('./');
+  }));
+});
