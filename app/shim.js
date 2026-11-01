@@ -355,6 +355,44 @@
     }
   };
 
+  /* ---------- Avisos con la app cerrada (Web Push) ---------- */
+  var PUSH = {
+    fn: CFG.url + '/functions/v1/push-reminders',
+    supported: function () { return !!sb && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; },
+    u8: function (b64) { var t = b64.replace(/-/g, '+').replace(/_/g, '/'); var r = atob(t + '='.repeat((4 - t.length % 4) % 4)); var o = new Uint8Array(r.length); for (var i = 0; i < r.length; i++) o[i] = r.charCodeAt(i); return o; },
+    sub: async function () { try { var reg = await navigator.serviceWorker.getRegistration(); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; } },
+    status: async function () {
+      if (!PUSH.supported()) return 'unsupported';
+      if (Notification.permission === 'denied') return 'blocked';
+      return (Notification.permission === 'granted' && await PUSH.sub()) ? 'on' : 'off';
+    },
+    save: async function (sub, uid) {
+      var j = sub.toJSON(), tz = 'UTC';
+      try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) { /* UTC */ }
+      var r = await sb.from('push_subs').upsert({ user_id: uid, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, tz: tz }, { onConflict: 'endpoint' });
+      if (r.error) throw r.error;
+    },
+    enable: async function () {
+      var s = await currentSession();
+      if (!s) throw new Error('Iniciá sesión para activar los avisos.');
+      var perm = await Notification.requestPermission();
+      if (perm !== 'granted') throw new Error('No diste permiso para las notificaciones.');
+      var reg = await navigator.serviceWorker.ready;
+      var kr = await fetch(PUSH.fn + '?action=key'), kj = await kr.json();
+      if (!kj.key) throw new Error('No se pudo preparar el servicio de avisos.');
+      var sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: PUSH.u8(kj.key) });
+      await PUSH.save(sub, s.user.id);
+    },
+    disable: async function () {
+      var sub = await PUSH.sub();
+      if (sub) { var ep = sub.endpoint; try { await sub.unsubscribe(); } catch (e) { /* ya estaba */ } try { await sb.from('push_subs').delete().eq('endpoint', ep); } catch (e) { /* sin conexión */ } }
+    },
+    sync: async function () {
+      try { if (await PUSH.status() !== 'on') return; var s = await currentSession(), sub = await PUSH.sub(); if (s && sub) await PUSH.save(sub, s.user.id); } catch (e) { /* se reintenta en el próximo arranque */ }
+    }
+  };
+  window.addEventListener('load', function () { setTimeout(PUSH.sync, 4000); });
+
   /* ---------- Botón y ventana de Cuenta ---------- */
   function openAccount() {
     if (document.querySelector('.fx-screen')) return;
@@ -365,6 +403,9 @@
       el.innerHTML = '<div class="fx-card" role="dialog" aria-label="Cuenta"><h1>Cuenta</h1>' +
         '<p class="fx-hint">' + (s ? 'Sesión iniciada como <b>' + esc(s.user.email) + '</b>.' : 'Estás usando la app solo en este dispositivo.') + '</p>' +
         (s ? '<button class="btn danger" type="button" id="fxOut" data-ok="0">Cerrar sesión</button>' : '<button class="btn primary" type="button" id="fxGo">Entrar o crear cuenta</button>') +
+        '<hr class="fx-hr"><h2 class="fx-h">Avisos con la app cerrada</h2>' +
+        '<p class="fx-hint" id="fxPushHint"></p><p class="fx-msg" id="fxPushMsg" role="status"></p>' +
+        '<div class="fx-row"><button class="btn" type="button" id="fxPush" hidden></button></div>' +
         '<hr class="fx-hr"><h2 class="fx-h">IA del asistente</h2>' +
         '<label class="fx-f">Proveedor<select id="fxProv">' + Object.keys(PROVIDERS).map(function (k) { return '<option value="' + k + '">' + esc(PROVIDERS[k].name) + '</option>'; }).join('') + '</select></label>' +
         '<label class="fx-f">Clave de API<input id="fxKey" type="password" autocomplete="off" spellcheck="false"></label>' +
@@ -375,6 +416,25 @@
         '<div class="fx-row"><button class="btn primary" type="button" id="fxSaveKey">Guardar</button><button class="btn" type="button" id="fxList">Ver modelos</button><button class="btn" type="button" id="fxTest">Probar</button><button class="btn" type="button" id="fxClose">Cerrar</button></div></div>';
       document.body.appendChild(el);
       try { if (window.focoDesktop && window.focoDesktop.version) window.focoDesktop.version().then(function (v) { if (v) { var h = el.querySelector('h1'); if (h) h.insertAdjacentHTML('afterend', '<p class="fx-hint">Foco Semanal, versión ' + esc(v) + '</p>'); } }); } catch (e) { /* sin escritorio */ }
+      (async function () {
+        var btn = el.querySelector('#fxPush'), hint = el.querySelector('#fxPushHint'), msg = el.querySelector('#fxPushMsg');
+        async function paint() {
+          var st = await PUSH.status();
+          btn.hidden = true; msg.textContent = '';
+          if (window.focoDesktop) hint.textContent = 'En Windows la app sigue activa en la bandeja del sistema (junto al reloj) y te avisa aunque cierres la ventana. Desde el menú de ese ícono también podés elegir Iniciar con Windows o Salir para cerrarla del todo.';
+          else if (!s) hint.textContent = 'Iniciá sesión para recibir avisos de tus bloques aunque la app esté cerrada.';
+          else if (st === 'unsupported') hint.textContent = 'Este navegador no admite avisos con la app cerrada. En iPhone, primero agregá la app a la pantalla de inicio.';
+          else if (st === 'blocked') hint.textContent = 'Las notificaciones están bloqueadas para este sitio. Activalas en los ajustes del navegador o del teléfono.';
+          else if (st === 'on') { hint.textContent = 'Activados en este dispositivo: te llegan los avisos de tus bloques aunque no tengas la app abierta.'; btn.textContent = 'Desactivar en este dispositivo'; btn.hidden = false; }
+          else { hint.textContent = 'Recibí los avisos de tus bloques aunque no tengas la app abierta.'; btn.textContent = 'Activar en este dispositivo'; btn.hidden = false; }
+        }
+        await paint();
+        btn.addEventListener('click', async function () {
+          btn.disabled = true; msg.textContent = '';
+          try { if (await PUSH.status() === 'on') await PUSH.disable(); else await PUSH.enable(); } catch (e) { msg.textContent = (e && e.message) || 'No se pudo cambiar.'; }
+          btn.disabled = false; var m = msg.textContent; await paint(); msg.textContent = m;
+        });
+      })();
       var draft = JSON.parse(JSON.stringify(cfg || loadCfg() || { active: 'anthropic', providers: {} }));
       if (!draft.providers) draft.providers = {};
       var prov = PROVIDERS[draft.active] ? draft.active : 'anthropic', $f = function (id) { return el.querySelector(id); };

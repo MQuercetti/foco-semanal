@@ -2861,7 +2861,7 @@ var L = (function () {
   function nfLoad() { try { return JSON.parse(localStorage.getItem(NF_LS) || '{}') || {}; } catch (e) { return {}; } }
   function notifShow(title, body, tag) {
     var opts = { body: body, tag: tag, icon: 'icon-192.png', badge: 'icon-192.png' };
-    function plain() { try { var n = new Notification(title, opts); n.onclick = function () { try { window.focus(); } catch (e) { /* nada */ } n.close(); }; } catch (e) { /* nada */ } }
+    function plain() { try { var n = new Notification(title, opts); n.onclick = function () { try { window.focus(); if (window.focoDesktop) window.focoDesktop.win('show'); } catch (e) { /* nada */ } n.close(); }; } catch (e) { /* nada */ } }
     try {
       if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) navigator.serviceWorker.getRegistration().then(function (r) { if (r && r.showNotification) r.showNotification(title, opts); else plain(); }, plain);
       else plain();

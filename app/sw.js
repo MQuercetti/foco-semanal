@@ -42,3 +42,9 @@ self.addEventListener('notificationclick', function (e) {
     return self.clients.openWindow('./');
   }));
 });
+
+self.addEventListener('push', function (e) {
+  var d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (x) { d = { title: 'Foco Semanal', body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Foco Semanal', { body: d.body || '', tag: d.tag || 'foco', icon: 'icon-192.png', badge: 'icon-192.png' }));
+});
