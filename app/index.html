@@ -731,6 +731,15 @@ body:not(.desk) { min-height: 100vh; }
 .rail .nav-item { animation: slide-l 360ms var(--ease-out) both; animation-delay: calc(980ms + var(--n, 0) * 45ms); }
 .nav-item:nth-child(1) { --n: 0; } .nav-item:nth-child(2) { --n: 1; } .nav-item:nth-child(3) { --n: 2; } .nav-item:nth-child(4) { --n: 3; } .nav-item:nth-child(5) { --n: 4; }
 @media (prefers-reduced-motion: reduce) { .shell { animation: fade 200ms ease 300ms both; } .rail .nav-item { animation: none; } }
+/* v1.8.0: metas y racha */
+.streak { font-size: 13px; font-weight: 700; color: var(--ink-2); padding: 4px 10px; border-radius: 999px; background: var(--fill); }
+.streak.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); }
+.tg-rows { gap: 2px; }
+.tg-row { width: 100%; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr) 156px; align-items: center; gap: 14px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; padding: 9px 8px; margin: 0 -8px; border-radius: 12px; cursor: pointer; transition: background-color 140ms ease, transform 140ms var(--ease-out); }
+.tg-row:active { transform: scale(0.995); }
+.tg-row.met .sr-v { color: var(--ink); font-weight: 700; }
+@media (hover: hover) and (pointer: fine) { .tg-row:hover { background: var(--fill); } }
+@media (max-width: 600px) { .tg-row { grid-template-columns: minmax(0, 1fr) auto; } .tg-row .sr-bar { grid-column: 1 / -1; order: 3; } }
 /* v1.7.0: resumen semanal */
 .sum-top { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 36px; }
 .sum-big { display: grid; }
@@ -738,14 +747,15 @@ body:not(.desk) { min-height: 100vh; }
 .sum-big .s, .sum-stats { color: var(--ink-2); font-size: 14px; }
 .sum-stats { display: flex; flex-wrap: wrap; gap: 4px 20px; }
 .sum-stats b { color: var(--ink); }
-.sum-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.sum-rows li { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr) 112px; align-items: center; gap: 14px; font-size: 14px; }
+.sum-rows { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.sum-rows li { min-width: 0; }
+.sum-rows li { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr) 156px; align-items: center; gap: 14px; font-size: 14px; }
 .sr-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .sr-bar { position: relative; height: 8px; border-radius: 4px; background: var(--fill); overflow: hidden; }
 .sr-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
 .sr-bar .p { background: color-mix(in srgb, var(--accent) 28%, var(--fill)); }
 .sr-bar .d { background: var(--accent); }
-.sr-v { color: var(--ink-2); font-size: 13px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.sr-v { color: var(--ink-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 600px) { .sum-rows li { grid-template-columns: minmax(0, 1fr) auto; } .sr-bar { grid-column: 1 / -1; order: 3; } }
 /* v1.5.0: exámenes y entregas */
 .ex-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
@@ -909,7 +919,7 @@ var L = (function () {
     now = now || new Date();
     s = isObj(s) ? s : {};
     var todayK = key(now);
-    var out = { v: 3, goals: [], blocks: [], sessions: [], active: null, reflections: {}, coaching: {}, busy: [], journal: [], exams: [], settings: {} };
+    var out = { v: 3, goals: [], blocks: [], sessions: [], active: null, reflections: {}, coaching: {}, busy: [], journal: [], exams: [], targets: [], settings: {} };
     var seen = {};
     function id(x, p) { x = typeof x === 'string' && x ? x : uid(p); while (seen[x]) x = uid(p); seen[x] = 1; return x; }
     var actionIds = {};
@@ -991,6 +1001,13 @@ var L = (function () {
       out.exams.push(o);
     });
     out.exams = out.exams.slice(0, 300);
+    arr(s.targets).filter(isObj).forEach(function (x) {
+      var t = str(x.title, '', 100), m = Number(x.min);
+      if (!t || !isFinite(m) || m < 15) return;
+      if (out.targets.some(function (y) { return y.title.toLowerCase() === t.toLowerCase(); })) return;
+      out.targets.push({ id: id(x.id, 't_'), title: t, min: Math.round(Math.min(m, 3000)) });
+    });
+    out.targets = out.targets.slice(0, 40);
     arr(s.journal).filter(isObj).forEach(function (j) {
       var t = typeof j.text === 'string' ? j.text.trim().slice(0, 4000) : '';
       if (!isKey(j.date) || !t) return;
@@ -1248,6 +1265,28 @@ var L = (function () {
       'Respondé solo con un objeto JSON con esta forma: {"goal": "título corto de la meta", "why": "una frase sobre por qué importa", "season": "nombre de la temporada con su resultado", "actions": [{"title": "…", "est": 60}]}. Todo en español rioplatense.'
     ].join('\n');
   }
+  /* Metas semanales por materia y racha de días con estudio */
+  function subjectOf(t) { return String(t || '').replace(/^Repaso:\s*/i, '').trim().toLowerCase(); }
+  function targetsProgress(state, mon) {
+    var keys = weekKeys(mon), done = {}, focus = {};
+    state.blocks.forEach(function (b) { if (b.done && keys.indexOf(b.date) >= 0) { var k = subjectOf(blockInfo(state, b).title); done[k] = (done[k] || 0) + b.dur; } });
+    state.sessions.forEach(function (x) { if (keys.indexOf(x.date) >= 0) { var k = subjectOf(x.title); focus[k] = (focus[k] || 0) + x.min; } });
+    return (state.targets || []).map(function (t) {
+      var k = subjectOf(t.title), got = Math.max(done[k] || 0, focus[k] || 0);
+      return { id: t.id, title: t.title, min: t.min, got: got, pct: Math.min(100, Math.round(got / t.min * 100)), met: got >= t.min };
+    });
+  }
+  function streakInfo(state, now) {
+    now = now || new Date();
+    var act = {};
+    state.blocks.forEach(function (b) { if (b.done) act[b.date] = 1; });
+    state.sessions.forEach(function (x) { if (x.min > 0) act[x.date] = 1; });
+    var ks = Object.keys(act).sort(), best = 0, run = 0, prev = null;
+    ks.forEach(function (k) { run = prev && Math.round((parseKey(k) - parseKey(prev)) / 864e5) === 1 ? run + 1 : 1; if (run > best) best = run; prev = k; });
+    var today = key(now), cur = 0, d = act[today] ? parseKey(today) : addDays(parseKey(today), -1);
+    while (act[key(d)]) { cur++; d = addDays(d, -1); }
+    return { cur: cur, best: best, today: !!act[today] };
+  }
   /* Resumen semanal: lo planificado y lo hecho por día y por materia, para mirar cómo fue una semana. */
   function weekSummary(state, mon, now) {
     now = now || new Date();
@@ -1411,6 +1450,11 @@ var L = (function () {
           if (!isNaN(etm) && etm >= 0 && etm < 1440) ei.time = etm;
           out.push(ei);
         }
+      } else if (op === 'target' || op === 'meta') {
+        var tt = str(o.title || o.titulo || o.materia, '', 100), th = Number(o.hours != null ? o.hours : o.horas);
+        if (tt && isFinite(th) && th >= 0.25) out.push({ op: 'target', title: tt, min: Math.round(Math.min(th * 60, 3000) / 15) * 15 });
+      } else if (op === 'target_del' || op === 'meta_borrar') {
+        var tid = str(o.id, '', 60); if (tid) out.push({ op: 'target_del', id: tid });
       } else if (op === 'exam_del' || op === 'examen_borrar') {
         var xid = str(o.id, '', 60); if (xid) out.push({ op: 'exam_del', id: xid });
       } else if (op === 'remind' || op === 'avisar' || op === 'aviso') {
@@ -1441,6 +1485,8 @@ var L = (function () {
         var rep = o.repeat ? ', ' + o.repeat.days.map(function (n) { return DAYS[n]; }).join(' ') + ' hasta ' + fmtDay(o.repeat.until) : '';
         return 'Agregar “' + o.title + '” · ' + fmtDay(o.date) + ' ' + hm(o.start) + '–' + hm(o.start + o.dur) + rep + (o.remind != null ? ' · aviso ' + remTxt(o.remind) : '');
       }
+      if (o.op === 'target') return 'Meta semanal: ' + fmtDur(o.min) + ' de “' + o.title + '”';
+      if (o.op === 'target_del') { var tg = (state.targets || []).find(function (x) { return x.id === o.id; }); return tg ? 'Quitar la meta de “' + tg.title + '”' : 'Quitar una meta que ya no existe'; }
       if (o.op === 'exam_del') { var xx = (state.exams || []).find(function (x) { return x.id === o.id; }); return xx ? 'Quitar ' + EXAM_NAMES[xx.kind].toLowerCase() + ' “' + xx.title + '”' : 'Quitar un examen que ya no existe'; }
       var b = state.blocks.find(function (x) { return x.id === o.id; }), nm = b ? '“' + blockInfo(state, b).title + '”' : 'un bloque que ya no existe';
       if (o.op === 'move') return 'Mover ' + nm + (o.date ? ' al ' + fmtDay(o.date) : '') + (o.start != null ? ' a las ' + hm(o.start) : '') + (o.dur ? ' (' + fmtDur(o.dur) + ')' : '');
@@ -1451,7 +1497,7 @@ var L = (function () {
   }
   function applyOps(state, ops, now) {
     now = now || new Date();
-    var rep = { added: 0, moved: 0, deleted: 0, reminded: 0, exams: 0, notes: 0, skipped: 0 }, n = 0;
+    var rep = { added: 0, moved: 0, deleted: 0, reminded: 0, exams: 0, targets: 0, notes: 0, skipped: 0 }, n = 0;
     ops.forEach(function (o) {
       if (o.op === 'add') {
         var dates = o.repeat ? expandRepeat(o.date, 'days', o.repeat.days, o.repeat.until) : [o.date], series = dates.length > 1 ? uid('r_') : '';
@@ -1469,6 +1515,15 @@ var L = (function () {
         var nd = o.date || b2.date, ns = o.start != null ? o.start : b2.start, ndur = o.dur || b2.dur;
         if (ns + ndur > END_H * 60 || clashAt(state, nd, ns, ndur, b2.id)) { rep.skipped++; return; }
         b2.date = nd; b2.start = ns; b2.dur = ndur; rep.moved++;
+      } else if (o.op === 'target') {
+        state.targets = state.targets || [];
+        var te = state.targets.find(function (x) { return x.title.toLowerCase() === o.title.toLowerCase(); });
+        if (te) te.min = o.min; else if (state.targets.length < 40) state.targets.push({ id: uid('t_'), title: o.title, min: o.min }); else { rep.skipped++; return; }
+        rep.targets++;
+      } else if (o.op === 'target_del') {
+        var tl = (state.targets || []).length;
+        state.targets = (state.targets || []).filter(function (x) { return x.id !== o.id; });
+        if (state.targets.length < tl) rep.targets++; else rep.skipped++;
       } else if (o.op === 'exam') {
         state.exams = state.exams || [];
         if (state.exams.some(function (x) { return x.date === o.date && x.title.toLowerCase() === o.title.toLowerCase(); }) || state.exams.length >= 300) { rep.skipped++; return; }
@@ -1518,6 +1573,8 @@ var L = (function () {
     var exl = upcomingExams(state, now).slice(0, 20);
     lines.push('Exámenes y entregas pendientes (id | fecha | tipo | título | falta):');
     lines.push(exl.length ? exl.map(function (x) { return x.id + ' | ' + x.date + (x.time != null ? ' ' + hm(x.time) : '') + ' | ' + EXAM_NAMES[x.kind] + ' | ' + x.title + ' | ' + countdownTxt(daysUntil(x.date, now)).toLowerCase(); }).join('\n') : '(ninguno)');
+    var tgp = targetsProgress(state, mondayOf(now));
+    if (tgp.length) { lines.push('Metas semanales por materia (id | materia | meta | llevan esta semana):'); lines.push(tgp.map(function (t) { return t.id + ' | ' + t.title + ' | ' + fmtDur(t.min) + ' | ' + fmtDur(t.got); }).join('\n')); }
     var bz = state.busy.filter(function (e) { return e.date >= todayK && e.date <= key(addDays(now, 14)); }).slice(0, 60);
     if (bz.length) { lines.push('Eventos ocupados de su calendario (no agendar encima):'); lines.push(bz.map(function (e) { return e.date + ' ' + hm(e.start) + '-' + hm(e.start + e.dur) + ' ' + e.title; }).join('\n')); }
     var wk = weekStats(state, mondayOf(now));
@@ -1527,6 +1584,7 @@ var L = (function () {
     lines.push('Si la persona adjunta fotos, PDF o archivos (por ejemplo su horario de cursada, el programa de una materia o un calendario), leelos y usalos para armar o ajustar la rutina. Si la persona pide crear, mover o quitar bloques o anotar algo en el diario, explicalo en una o dos frases y agregá al final UN bloque de código con la etiqueta acciones que contenga un arreglo JSON. La persona lo revisa y decide si aplicarlo. Formatos:');
     lines.push('{"op":"add","title":"Análisis Numérico","date":"2026-10-20","start":"18:00","dur":90,"color":0,"repeat":{"days":["lun","mié"],"until":"2026-11-30"}}  (repeat es opcional; days en lun, mar, mié, jue, vie, sáb, dom)');
     lines.push('Exámenes: {"op":"exam","title":"Parcial de Análisis","date":"2026-11-12","kind":"parcial","time":"09:00"} (kind: parcial, final, entrega u otro; time es opcional) y {"op":"exam_del","id":"<id>"}. Si hay exámenes o entregas cerca, armá la rutina hacia atrás desde esa fecha: más bloques de esa materia a medida que se acerca, y un repaso liviano el día anterior.');
+    lines.push('Metas: {"op":"target","title":"Análisis Numérico","hours":6} fija o cambia las horas semanales de una materia, y {"op":"target_del","id":"<id>"} la quita. Si hay metas, repartí los bloques para que cada materia llegue a su meta.');
     lines.push('Avisos: agregá "remind":15 (minutos antes; 0 = al empezar) a un add para que la persona reciba una notificación; hacelo solo si la pidió o si es un parcial, una entrega o algo que no puede olvidar. Para un bloque que ya existe: {"op":"remind","id":"<id>","min":30} ("min":null quita el aviso).');
     lines.push('{"op":"move","id":"<id del bloque>","date":"2026-10-21","start":"19:00"}   {"op":"delete","id":"<id>"}   {"op":"note","text":"…","date":"2026-10-20"}');
     lines.push('Cuando armes una rutina, usá repeat para lo que se repite cada semana, dejá al menos 10 minutos entre bloques de estudio largos, respetá los eventos ocupados y no superpongas bloques. Proponé siempre bloques concretos con día y hora, no consejos generales.');
@@ -1543,7 +1601,7 @@ var L = (function () {
     fmtDur: fmtDur, stable: stable, clone: clone, uid: uid, nearestDur: nearestDur, normalize: normalize, seed: seed, prune: prune,
     indexActions: indexActions, planStrength: planStrength, compass: compass, weekStats: weekStats, parseICS: parseICS, buildCSV: buildCSV,
     coercePlan: coercePlan, buildPlanPrompt: buildPlanPrompt, buildCoachPrompt: buildCoachPrompt,
-    COLOR_NAMES: COLOR_NAMES, weekSummary: weekSummary, buildReviewPrompt: buildReviewPrompt, scheduleReviews: scheduleReviews, EXAM_KINDS: EXAM_KINDS, EXAM_NAMES: EXAM_NAMES, daysUntil: daysUntil, countdownTxt: countdownTxt, upcomingExams: upcomingExams, remTxt: remTxt, remOf: remOf, blockInfo: blockInfo, expandRepeat: expandRepeat, clashAt: clashAt, coerceOps: coerceOps, describeOps: describeOps, applyOps: applyOps, parseOps: parseOps, buildChatPrompt: buildChatPrompt, fmtDay: fmtDay
+    COLOR_NAMES: COLOR_NAMES, targetsProgress: targetsProgress, streakInfo: streakInfo, weekSummary: weekSummary, buildReviewPrompt: buildReviewPrompt, scheduleReviews: scheduleReviews, EXAM_KINDS: EXAM_KINDS, EXAM_NAMES: EXAM_NAMES, daysUntil: daysUntil, countdownTxt: countdownTxt, upcomingExams: upcomingExams, remTxt: remTxt, remOf: remOf, blockInfo: blockInfo, expandRepeat: expandRepeat, clashAt: clashAt, coerceOps: coerceOps, describeOps: describeOps, applyOps: applyOps, parseOps: parseOps, buildChatPrompt: buildChatPrompt, fmtDay: fmtDay
   };
 })();
 /* ==LOGIC:END== */
@@ -1763,10 +1821,40 @@ var L = (function () {
     var nr = L.scheduleReviews(state, b, new Date());
     if (nr.length) ui.flash = 'Agendé ' + (nr.length === 1 ? '1 repaso' : nr.length + ' repasos') + ' de “' + binfo(b).title + '”: ' + nr.map(function (r) { var d = parseKey(r.date); return DAYS[(d.getDay() + 6) % 7] + ' ' + d.getDate() + ' ' + hm(r.start); }).join(', ') + '.';
   }
+  function goalsCard() {
+    var now = new Date(), list = L.targetsProgress(state, mondayOf(now)), sk = L.streakInfo(state, now);
+    var st = sk.cur > 0 ? 'Racha de ' + (sk.cur === 1 ? '1 día' : sk.cur + ' días') + (sk.best > sk.cur ? ' · mejor ' + sk.best : '') : sk.best > 0 ? 'Sin racha · mejor ' + sk.best + (sk.best === 1 ? ' día' : ' días') : 'Estudiá hoy para empezar una racha';
+    var h = '<section class="dcard goals dash-enter" style="--i:5"><div class="card-head"><h2>Metas de la semana</h2><div class="row"><span class="streak' + (sk.cur > 0 ? ' on' : '') + '">' + st + '</span><button class="btn small" type="button" data-act="target-add">Agregar</button></div></div>';
+    if (!list.length) return h + '<p class="empty">Poné una meta de horas por materia (por ejemplo, 6 h de Análisis Numérico) y seguí el avance durante la semana. Cuenta lo que marcás como hecho o lo que estudiás con el reloj, lo que sea mayor.</p></section>';
+    h += '<ul class="sum-rows tg-rows">';
+    list.forEach(function (t) {
+      h += '<li><button type="button" class="tg-row' + (t.met ? ' met' : '') + '" data-act="target-edit" data-id="' + t.id + '"><span class="sr-t">' + esc(t.title) + '</span><span class="sr-bar" aria-hidden="true"><i class="d" style="width:' + t.pct + '%"></i></span><span class="sr-v">' + (t.met ? 'Cumplida' : fmtDur(t.got) + ' de ' + fmtDur(t.min)) + '</span></button></li>';
+    });
+    return h + '</ul></section>';
+  }
+  function targetHTML(d) {
+    var titles = [], seen = {};
+    state.blocks.slice().reverse().forEach(function (b) { var t = binfo(b).title; if (!/^Repaso:/i.test(t) && !seen[t] && titles.length < 20) { seen[t] = 1; titles.push(t); } });
+    return '<form class="modal" id="tgForm" role="dialog" aria-modal="true" aria-label="Meta semanal"><h2>' + (d.id ? 'Editar meta' : 'Nueva meta semanal') + '</h2>' +
+      '<label class="field">Materia<input id="tTitle" type="text" maxlength="100" autocomplete="off" list="tTitles" placeholder="Ej: Análisis Numérico" value="' + esc(d.title) + '"></label><datalist id="tTitles">' + titles.map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
+      '<label class="field">Horas por semana<input id="tHours" type="number" min="0.5" max="50" step="0.5" inputmode="decimal" value="' + esc(d.hours) + '"></label>' +
+      '<p class="msg" id="tMsg"></p><div class="row" style="justify-content:space-between"><span class="row">' + (d.id ? '<button class="btn danger" type="button" data-act="target-del" data-confirm="1">Quitar</button>' : '') + '</span>' +
+      '<span class="row"><button class="btn" type="button" data-act="close-overlay">Cancelar</button><button class="btn primary" type="submit">Guardar</button></span></div></form>';
+  }
+  function saveTarget() {
+    var d = ui.dialog, title = ($('#tTitle').value || '').trim(), h = Number(String($('#tHours').value).replace(',', '.')), msg = $('#tMsg');
+    if (!title) { msg.textContent = 'Poné la materia.'; return; }
+    if (!isFinite(h) || h < 0.5 || h > 50) { msg.textContent = 'Las horas tienen que estar entre 0,5 y 50.'; return; }
+    var min = Math.round(h * 60 / 15) * 15, dup = state.targets.find(function (x) { return x.title.toLowerCase() === title.toLowerCase() && x.id !== d.id; });
+    if (dup) { msg.textContent = 'Ya tenés una meta para esa materia.'; return; }
+    if (d.id) { var x = state.targets.find(function (y) { return y.id === d.id; }); if (x) { x.title = title; x.min = min; } }
+    else state.targets.push({ id: uid('t_'), title: title, min: min });
+    ui.dialog = null; touch(); render();
+  }
   function summaryOffset() { return ui.sum != null ? ui.sum : (new Date().getDay() === 0 ? 0 : -1); }
   function summaryCard() {
     var now = new Date(), off = summaryOffset(), sm = L.weekSummary(state, addDays(mondayOf(now), off * 7), now), co = state.coaching && state.coaching.week && state.coaching.week.week === sm.mon ? state.coaching.week.text : '';
-    var h = '<section class="dcard summary dash-enter" style="--i:5"><div class="card-head"><h2>Resumen semanal</h2><div class="row" role="group" aria-label="Semana">' +
+    var h = '<section class="dcard summary dash-enter" style="--i:6"><div class="card-head"><h2>Resumen semanal</h2><div class="row" role="group" aria-label="Semana">' +
       '<button class="chip-btn" type="button" data-act="sum-week" data-w="-1" aria-pressed="' + (off === -1) + '">Semana pasada</button><button class="chip-btn" type="button" data-act="sum-week" data-w="0" aria-pressed="' + (off === 0) + '">Esta semana</button></div></div>';
     if (!sm.planned && !sm.focus) return h + '<p class="empty">No hay bloques ni estudio registrado en esa semana todavía.</p></section>';
     var mx = sm.rows.reduce(function (m, r) { return Math.max(m, r.planned, r.focus); }, 1);
@@ -1844,8 +1932,8 @@ var L = (function () {
       '<div class="stat dash-enter" style="--i:1"><span class="k">Hecho hoy</span><span class="v">' + fmtDur(td) + '</span><span class="s">' + (tp ? pct + '% de lo planificado' : 'Sin bloques hoy') + '</span><span class="mini" aria-hidden="true"><i style="width:' + pct + '%"></i></span></div>' +
       '<div class="stat dash-enter" style="--i:2"><span class="k">Estudio con reloj</span><span class="v">' + fmtDur(wf) + '</span><span class="s">esta semana</span>' + sparkHTML(wd.map(function (x) { return x.f; }), ti) + '</div>' +
       '<div class="stat dash-enter" style="--i:3"><span class="k">Días con estudio</span><span class="v">' + days + ' de 7</span><span class="s">Hecho ' + fmtDur(wdn) + ' de ' + fmtDur(wp) + ' planificados</span>' + sparkHTML(wd.map(function (x) { return x.d; }), ti) + '</div></div>';
-    h += examsCard() + summaryCard() + '<div class="dash-grid"><section class="dcard dash-enter" style="--i:6"><div class="card-head"><h2>Tu semana</h2><div class="row"><div class="legend"><span style="--lc:color-mix(in srgb,var(--accent) 30%,var(--surface-2))"><i></i>Planificado</span><span style="--lc:var(--accent)"><i></i>Hecho</span></div><button class="btn small ghost" data-act="toggle-table" aria-pressed="' + !!ui.table + '">' + (ui.table ? 'Ver gráfico' : 'Ver tabla') + '</button></div></div>' + (ui.table ? barsTable(wd) : barsHTML(wd)) + '</section>' +
-      '<section class="dcard dash-enter" style="--i:7"><div class="card-head"><h2>Tiempo por meta</h2></div>' + donutHTML() + '</section></div></div>';
+    h += examsCard() + goalsCard() + summaryCard() + '<div class="dash-grid"><section class="dcard dash-enter" style="--i:7"><div class="card-head"><h2>Tu semana</h2><div class="row"><div class="legend"><span style="--lc:color-mix(in srgb,var(--accent) 30%,var(--surface-2))"><i></i>Planificado</span><span style="--lc:var(--accent)"><i></i>Hecho</span></div><button class="btn small ghost" data-act="toggle-table" aria-pressed="' + !!ui.table + '">' + (ui.table ? 'Ver gráfico' : 'Ver tabla') + '</button></div></div>' + (ui.table ? barsTable(wd) : barsHTML(wd)) + '</section>' +
+      '<section class="dcard dash-enter" style="--i:8"><div class="card-head"><h2>Tiempo por meta</h2></div>' + donutHTML() + '</section></div></div>';
     return h;
   }
   function searchResults(q) {
@@ -2332,13 +2420,13 @@ var L = (function () {
       }
       return;
     }
-    var html = d.type === 'compose' ? composeHTML(d) : d.type === 'theme' ? themeHTML() : d.type === 'exam' ? examHTML(d) : blockHTML(d);
+    var html = d.type === 'compose' ? composeHTML(d) : d.type === 'theme' ? themeHTML() : d.type === 'exam' ? examHTML(d) : d.type === 'target' ? targetHTML(d) : blockHTML(d);
     if (!html) { ui.dialog = null; o.hidden = true; o.innerHTML = ''; o.classList.remove('closing'); return; }
     o.classList.remove('closing');
     o.innerHTML = html;
     o.hidden = false;
     if (d.type === 'compose') checkCompose();
-    var f = o.querySelector(d.type === 'compose' ? '#cTitle' : d.type === 'exam' ? '#xTitle' : d.type === 'theme' ? '.chip-btn[aria-pressed="true"]' : 'button');
+    var f = o.querySelector(d.type === 'compose' ? '#cTitle' : d.type === 'exam' ? '#xTitle' : d.type === 'target' ? '#tTitle' : d.type === 'theme' ? '.chip-btn[aria-pressed="true"]' : 'button');
     if (f) f.focus();
   }
   function composeVals() {
@@ -2658,6 +2746,7 @@ var L = (function () {
     if (m.ops.some(function (o) { return o.remind != null || (o.op === 'remind' && o.min != null); })) askNotif();
     if (rep.added) parts.push(rep.added + (rep.added === 1 ? ' bloque agregado' : ' bloques agregados'));
     if (rep.moved) parts.push(rep.moved + (rep.moved === 1 ? ' movido' : ' movidos'));
+    if (rep.targets) parts.push(rep.targets + (rep.targets === 1 ? ' meta semanal' : ' metas semanales'));
     if (rep.exams) parts.push(rep.exams + (rep.exams === 1 ? ' examen o entrega' : ' exámenes o entregas'));
     if (rep.reminded) parts.push(rep.reminded + (rep.reminded === 1 ? ' aviso cambiado' : ' avisos cambiados'));
     if (rep.deleted) parts.push(rep.deleted + (rep.deleted === 1 ? ' quitado' : ' quitados'));
@@ -2861,6 +2950,9 @@ var L = (function () {
       [].slice.call(document.querySelectorAll('.cdot')).forEach(function (x) { x.setAttribute('aria-pressed', String(x === t)); });
     }
     else if (act === 'rep-day') { t.setAttribute('aria-pressed', String(t.getAttribute('aria-pressed') !== 'true')); checkCompose(); }
+    else if (act === 'target-add') { ui.dialog = { type: 'target', id: null, title: '', hours: '4' }; renderOverlay(); }
+    else if (act === 'target-edit') { var tg = state.targets.find(function (x) { return x.id === t.dataset.id; }); if (tg) { ui.dialog = { type: 'target', id: tg.id, title: tg.title, hours: String(tg.min / 60) }; renderOverlay(); } }
+    else if (act === 'target-del') { state.targets = state.targets.filter(function (x) { return x.id !== ui.dialog.id; }); ui.dialog = null; touch(); render(); }
     else if (act === 'sum-week') { ui.sum = Number(t.dataset.w); ui.sumErr = ''; render(); }
     else if (act === 'sum-ai') { summaryAsk(); }
     else if (act === 'exam-add') { ui.dialog = { type: 'exam', id: null, title: '', kind: 'parcial', date: key(addDays(new Date(), 7)), time: null, color: 0 }; renderOverlay(); }
@@ -3022,6 +3114,7 @@ var L = (function () {
     var f = e.target;
     if (f.id === 'cForm') saveCompose();
     else if (f.id === 'exForm') saveExam();
+    else if (f.id === 'tgForm') saveTarget();
     else if (f.id === 'jForm') {
       var ta = $('#jText'), text = ta.value.trim();
       if (!text) return;
