@@ -922,6 +922,8 @@ var L = (function () {
       var ob = { id: id(b.id, 'b_'), actionId: linked ? b.actionId : '', color: Math.abs(parseInt(b.color, 10) || 0) % 6, date: b.date,
         start: Math.round(Math.max(0, Math.min(1435, st))), dur: Math.round(Math.max(5, Math.min(1440, du))), done: !!b.done };
       if (title) ob.title = title;
+      if (b.rv === true) ob.rv = true;
+      var srcId = str(b.src, '', 60); if (srcId) ob.src = srcId;
       if (b.remind != null && b.remind !== '' && isFinite(Number(b.remind))) ob.remind = Math.round(Math.max(0, Math.min(1440, Number(b.remind))));
       var se = str(b.series, '', 40);
       if (se) ob.series = se;
@@ -982,7 +984,7 @@ var L = (function () {
     out.journal.sort(function (x, y) { return x.ts - y.ts; });
     out.journal = out.journal.slice(-2000);
     var st2 = isObj(s.settings) ? s.settings : {};
-    out.settings = { sound: SOUNDS.indexOf(st2.sound) >= 0 ? st2.sound : 'off', volume: num(st2.volume, 0.4, 0, 1), capacity: Math.round(num(st2.capacity, 20, 1, 100)), lock: st2.lock !== false, theme: ['auto', 'light', 'dark'].indexOf(st2.theme) >= 0 ? st2.theme : 'auto', accent: ['indigo', 'teal', 'rose', 'amber', 'violet', 'forest', 'graphite'].indexOf(st2.accent) >= 0 ? st2.accent : 'indigo' };
+    out.settings = { sound: SOUNDS.indexOf(st2.sound) >= 0 ? st2.sound : 'off', volume: num(st2.volume, 0.4, 0, 1), capacity: Math.round(num(st2.capacity, 20, 1, 100)), lock: st2.lock !== false, spaced: st2.spaced !== false, theme: ['auto', 'light', 'dark'].indexOf(st2.theme) >= 0 ? st2.theme : 'auto', accent: ['indigo', 'teal', 'rose', 'amber', 'violet', 'forest', 'graphite'].indexOf(st2.accent) >= 0 ? st2.accent : 'indigo' };
     return out;
   }
 
@@ -1284,6 +1286,29 @@ var L = (function () {
     }
     return out.length ? out : [date];
   }
+  /* Repaso espaciado: al terminar un bloque se agendan repasos cortos 1, 3 y 7 días después, cerca de la misma hora. */
+  function reviewSlot(state, dateK, pref, dur) {
+    var lo = START_H * 60, hi = END_H * 60 - dur, p = Math.max(lo, Math.min(hi, Math.round(pref / 15) * 15)), c = [];
+    for (var d = 0; d <= hi - lo; d += 15) { if (p + d <= hi) c.push(p + d); if (d && p - d >= lo) c.push(p - d); }
+    for (var i = 0; i < c.length; i++) {
+      var st = c[i];
+      if (!clashAt(state, dateK, st, dur, null) && !state.busy.some(function (e) { return e.date === dateK && st < e.start + e.dur && e.start < st + dur; })) return st;
+    }
+    return -1;
+  }
+  function scheduleReviews(state, b, now) {
+    now = now || new Date();
+    if (!b || b.rv || !b.done || state.blocks.some(function (x) { return x.src === b.id; })) return [];
+    var title = ('Repaso: ' + blockInfo(state, b).title).slice(0, 100), dur = Math.max(15, Math.min(30, Math.round(b.dur / 3 / 15) * 15));
+    var base = parseKey(b.date), today = parseKey(key(now)), from = base < today ? today : base, out = [];
+    [1, 3, 7].forEach(function (n) {
+      for (var sh = 0; sh < 3; sh++) {
+        var k = key(addDays(from, n + sh)), st = reviewSlot(state, k, b.start, dur);
+        if (st >= 0) { var nb = { id: uid('b_'), actionId: '', title: title, color: b.color, date: k, start: st, dur: dur, done: false, rv: true, src: b.id }; state.blocks.push(nb); out.push(nb); return; }
+      }
+    });
+    return out;
+  }
   function clashAt(state, date, start, dur, selfId) {
     return state.blocks.find(function (b) { return b.id !== selfId && b.date === date && start < b.start + b.dur && b.start < start + dur; }) || null;
   }
@@ -1464,7 +1489,7 @@ var L = (function () {
     fmtDur: fmtDur, stable: stable, clone: clone, uid: uid, nearestDur: nearestDur, normalize: normalize, seed: seed, prune: prune,
     indexActions: indexActions, planStrength: planStrength, compass: compass, weekStats: weekStats, parseICS: parseICS, buildCSV: buildCSV,
     coercePlan: coercePlan, buildPlanPrompt: buildPlanPrompt, buildCoachPrompt: buildCoachPrompt,
-    COLOR_NAMES: COLOR_NAMES, EXAM_KINDS: EXAM_KINDS, EXAM_NAMES: EXAM_NAMES, daysUntil: daysUntil, countdownTxt: countdownTxt, upcomingExams: upcomingExams, remTxt: remTxt, remOf: remOf, blockInfo: blockInfo, expandRepeat: expandRepeat, clashAt: clashAt, coerceOps: coerceOps, describeOps: describeOps, applyOps: applyOps, parseOps: parseOps, buildChatPrompt: buildChatPrompt, fmtDay: fmtDay
+    COLOR_NAMES: COLOR_NAMES, scheduleReviews: scheduleReviews, EXAM_KINDS: EXAM_KINDS, EXAM_NAMES: EXAM_NAMES, daysUntil: daysUntil, countdownTxt: countdownTxt, upcomingExams: upcomingExams, remTxt: remTxt, remOf: remOf, blockInfo: blockInfo, expandRepeat: expandRepeat, clashAt: clashAt, coerceOps: coerceOps, describeOps: describeOps, applyOps: applyOps, parseOps: parseOps, buildChatPrompt: buildChatPrompt, fmtDay: fmtDay
   };
 })();
 /* ==LOGIC:END== */
@@ -1678,6 +1703,12 @@ var L = (function () {
     var mx = Math.max.apply(null, vals.concat([1]));
     return '<div class="spark" aria-hidden="true">' + vals.map(function (v, i) { return '<i class="' + (i === todayIdx ? 'on' : '') + '" style="height:' + Math.max(8, v / mx * 100) + '%;--i:' + i + '"></i>'; }).join('') + '</div>';
   }
+  function toggleDone(b) {
+    b.done = !b.done;
+    if (!b.done || !state.settings.spaced || b.rv) return;
+    var nr = L.scheduleReviews(state, b, new Date());
+    if (nr.length) ui.flash = 'Agendé ' + (nr.length === 1 ? '1 repaso' : nr.length + ' repasos') + ' de “' + binfo(b).title + '”: ' + nr.map(function (r) { var d = parseKey(r.date); return DAYS[(d.getDay() + 6) % 7] + ' ' + d.getDate() + ' ' + hm(r.start); }).join(', ') + '.';
+  }
   function examsCard() {
     var now = new Date(), list = L.upcomingExams(state, now);
     var h = '<section class="dcard exams dash-enter" style="--i:4"><div class="card-head"><h2>Exámenes y entregas</h2><button class="btn small" type="button" data-act="exam-add">Agregar</button></div>';
@@ -1848,6 +1879,7 @@ var L = (function () {
       order.forEach(function (t) { var g = groups[t]; h += '<li style="' + cStyle(g.color) + '"><span class="dot"></span><span class="t">' + esc(t) + '<small>' + g.n + (g.n === 1 ? ' bloque' : ' bloques') + ' · ' + fmtDur(g.m) + '</small></span></li>'; });
       h += '</ul><p style="margin-top:14px">Tocá un hueco para agendar, arrastrá para marcar un rango, o arrastrá un bloque para moverlo.</p>';
     }
+    h += '<label class="check" style="margin-top:14px"><input type="checkbox" id="spacedSet"' + (state.settings.spaced ? ' checked' : '') + '><span><b>Repasos automáticos</b><br><span class="meta">Al terminar un bloque se agendan repasos cortos 1, 3 y 7 días después.</span></span></label>';
     h += '<div class="row" style="margin-top:6px"><button class="btn small" data-go="asistente">Armar con el asistente</button></div></aside></div>';
     return h;
   }
@@ -2749,12 +2781,12 @@ var L = (function () {
     else if (act === 'exam-done') { var xd = (state.exams || []).find(function (x) { return x.id === t.dataset.id; }); if (xd) xd.done = !xd.done; if (ui.dialog) ui.dialog = null; touch(); render(); }
     else if (act === 'exam-del') { state.exams = (state.exams || []).filter(function (x) { return x.id !== ui.dialog.id; }); ui.dialog = null; touch(); render(); }
     else if (act === 'open-block') { ui.dialog = { type: 'block', id: t.dataset.blockId }; renderOverlay(); }
-    else if (act === 'block-done') { b = blockById(ui.dialog.id); if (b) b.done = !b.done; ui.dialog = null; touch(); render(); }
+    else if (act === 'block-done') { b = blockById(ui.dialog.id); if (b) toggleDone(b); ui.dialog = null; touch(); render(); }
     else if (act === 'block-del') { state.blocks = state.blocks.filter(function (x) { return x.id !== ui.dialog.id; }); ui.dialog = null; touch(); render(); }
     else if (act === 'block-del-series') { b = blockById(ui.dialog.id); if (b && b.series) { var sid = b.series; state.blocks = state.blocks.filter(function (x) { return x.series !== sid; }); } ui.dialog = null; touch(); render(); }
     else if (act === 'block-edit') { b = blockById(ui.dialog.id); if (b) { var bi = binfo(b); openCompose({ date: b.date, start: b.start, dur: b.dur, title: bi.title, color: bi.color, blockId: b.id, remind: b.remind != null ? b.remind : null }); } }
     else if (act === 'block-focus') { b = blockById(ui.dialog.id); if (b) startFocusBlock(b); }
-    else if (act === 'tl-done') { b = blockById(t.dataset.blockId); if (b) { b.done = !b.done; touch(); render(); } }
+    else if (act === 'tl-done') { b = blockById(t.dataset.blockId); if (b) { toggleDone(b); touch(); render(); } }
     else if (act === 'focus-start-block') { b = blockById(t.dataset.blockId); if (b) startFocusBlock(b); }
     else if (act === 'pick-dur') { ui.fTitle = ($('#fTitle') || {}).value || ui.fTitle; ui.fDur = Number(t.dataset.m); render(); }
     else if (act === 'focus-start-free') {
@@ -2782,7 +2814,7 @@ var L = (function () {
       var notes = String(a.notes || '') + (a.distractions.length ? (a.notes ? '\n' : '') + 'Distracciones: ' + a.distractions.join('; ') : '');
       state.sessions.push({ id: uid('f_'), actionId: a.actionId || '', goalId: a.goalId || '', title: a.title, goal: a.goal || '', color: a.color, date: key(new Date(a.startedAt)),
         min: Math.max(1, Math.round(elapsed(a) / 60000)), notes: notes.slice(0, 1000), distractions: a.distractions.length });
-      b = a.blockId && blockById(a.blockId); if (b) b.done = true;
+      b = a.blockId && blockById(a.blockId); if (b && !b.done) toggleDone(b);
       state.active = null; ui.finishing = false; ui.peek = false; touch(); render(); applySound();
     }
     else if (act === 'focus-discard') { state.active = null; ui.finishing = false; ui.peek = false; touch(); render(); applySound(); }
@@ -2839,6 +2871,7 @@ var L = (function () {
       checkCompose(); return;
     }
     if (el.id === 'lockSet') { state.settings.lock = el.checked; touch(); return; }
+    if (el.id === 'spacedSet') { state.settings.spaced = el.checked; touch(); return; }
     if (el.id === 'chatFile') { addFiles(el.files).then(function () { el.value = ''; }); return; }
     if (el.id === 'chatAuto') { ui.chat.auto = el.checked; try { localStorage.setItem(AUTO_LS, el.checked ? '1' : '0'); } catch (er) { /* sin almacenamiento */ } return; }
     if (el.id === 'soundSel') { state.settings.sound = L.SOUNDS.indexOf(el.value) >= 0 ? el.value : 'off'; touch(); applySound(); return; }
