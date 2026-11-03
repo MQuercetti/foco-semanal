@@ -769,6 +769,12 @@ body:not(.desk) { min-height: 100vh; }
 .nx-l .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nx .row { margin-top: 6px; }
 @media (max-width: 700px) { .nx .btn.big { width: 100%; } }
+.tk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.tk-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 0; }
+.tk-row[draggable="true"] { cursor: grab; }
+.tk-row.done .tk-t { text-decoration: line-through; opacity: .55; }
+.tk-t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.col.tk-over { background-color: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 .ex-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .ex-row { display: flex; align-items: center; gap: 8px; }
 .ex-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left; border: 0; background: transparent; color: inherit; font: inherit; padding: 10px 8px; margin-left: -8px; border-radius: 12px; cursor: pointer; transition: background-color 140ms ease, transform 140ms var(--ease-out); }
@@ -930,7 +936,7 @@ var L = (function () {
     now = now || new Date();
     s = isObj(s) ? s : {};
     var todayK = key(now);
-    var out = { v: 3, goals: [], blocks: [], sessions: [], active: null, reflections: {}, coaching: {}, busy: [], journal: [], exams: [], targets: [], settings: {} };
+    var out = { v: 3, goals: [], blocks: [], sessions: [], active: null, reflections: {}, coaching: {}, busy: [], journal: [], exams: [], targets: [], tasks: [], settings: {} };
     var seen = {};
     function id(x, p) { x = typeof x === 'string' && x ? x : uid(p); while (seen[x]) x = uid(p); seen[x] = 1; return x; }
     var actionIds = {};
@@ -1013,6 +1019,14 @@ var L = (function () {
       out.exams.push(o);
     });
     out.exams = out.exams.slice(0, 300);
+    arr(s.tasks).filter(isObj).forEach(function (x) {
+      var t = str(x.title, '', 100), du = Number(x.dur);
+      if (!t) return;
+      var o = { id: id(x.id, 'k_'), title: t, done: !!x.done };
+      if (x.dur != null && isFinite(du) && du >= 15) o.dur = Math.round(Math.min(480, du) / 15) * 15;
+      out.tasks.push(o);
+    });
+    out.tasks = out.tasks.slice(0, 100);
     arr(s.targets).filter(isObj).forEach(function (x) {
       var t = str(x.title, '', 100), m = Number(x.min);
       if (!t || !isFinite(m) || m < 15) return;
@@ -1940,6 +1954,22 @@ var L = (function () {
     }
     ui.dialog = null; touch(); render();
   }
+  /* Tareas sueltas: pendientes sin hora; se arrastran a la grilla o se agendan con un toque */
+  function taskRows(drag) {
+    return (state.tasks || []).slice().sort(function (a, b) { return a.done - b.done; }).map(function (k) {
+      return '<li class="tk-row' + (k.done ? ' done' : '') + '"' + (drag && !k.done ? ' draggable="true" data-task="' + k.id + '"' : '') + '>' +
+        '<button type="button" class="ex-ok" data-act="task-done" data-id="' + k.id + '" aria-label="' + (k.done ? 'Desmarcar' : 'Marcar como hecha') + '" aria-pressed="' + k.done + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></button>' +
+        '<span class="tk-t">' + esc(k.title) + '</span>' +
+        (k.done ? '' : '<button type="button" class="btn small" data-act="task-plan" data-id="' + k.id + '">Agendar</button>') +
+        '<button type="button" class="x" data-act="task-del" data-id="' + k.id + '" aria-label="Quitar">×</button></li>';
+    }).join('');
+  }
+  function tasksCard() {
+    var n = (state.tasks || []).length, hasDone = (state.tasks || []).some(function (k) { return k.done; });
+    return '<section class="dcard tasks dash-enter" style="--i:3"><div class="card-head"><h2>Pendientes sueltos</h2>' + (hasDone ? '<button class="btn small ghost" type="button" data-act="task-clear">Limpiar hechos</button>' : '') + '</div>' +
+      '<form id="tkForm" class="row-form" style="max-width:none"><label class="sr" for="tkInput">Nuevo pendiente</label><input id="tkInput" type="text" maxlength="100" autocomplete="off" placeholder="Ej: leer el capítulo 4, mandar el TP"><button class="btn" type="submit">Agregar</button></form>' +
+      (n ? '<ul class="tk-list">' + taskRows(false) + '</ul>' : '<p class="empty">Anotá lo que tenés que hacer aunque no tenga hora. Después lo agendás con un toque o lo arrastrás al calendario desde la Semana.</p>') + '</section>';
+  }
   /* "Lo que sigue hoy": lo primero que se ve al abrir, pensado para el teléfono */
   function nextCard() {
     var now = new Date(), nm = now.getHours() * 60 + now.getMinutes(), ix = index(), a = state.active;
@@ -1974,7 +2004,7 @@ var L = (function () {
       '<div class="stat dash-enter" style="--i:1"><span class="k">Hecho hoy</span><span class="v">' + fmtDur(td) + '</span><span class="s">' + (tp ? pct + '% de lo planificado' : 'Sin bloques hoy') + '</span><span class="mini" aria-hidden="true"><i style="width:' + pct + '%"></i></span></div>' +
       '<div class="stat dash-enter" style="--i:2"><span class="k">Estudio con reloj</span><span class="v">' + fmtDur(wf) + '</span><span class="s">esta semana</span>' + sparkHTML(wd.map(function (x) { return x.f; }), ti) + '</div>' +
       '<div class="stat dash-enter" style="--i:3"><span class="k">Días con estudio</span><span class="v">' + days + ' de 7</span><span class="s">Hecho ' + fmtDur(wdn) + ' de ' + fmtDur(wp) + ' planificados</span>' + sparkHTML(wd.map(function (x) { return x.d; }), ti) + '</div></div>';
-    h += examsCard() + goalsCard() + summaryCard() + '<div class="dash-grid"><section class="dcard dash-enter" style="--i:7"><div class="card-head"><h2>Tu semana</h2><div class="row"><div class="legend"><span style="--lc:color-mix(in srgb,var(--accent) 30%,var(--surface-2))"><i></i>Planificado</span><span style="--lc:var(--accent)"><i></i>Hecho</span></div><button class="btn small ghost" data-act="toggle-table" aria-pressed="' + !!ui.table + '">' + (ui.table ? 'Ver gráfico' : 'Ver tabla') + '</button></div></div>' + (ui.table ? barsTable(wd) : barsHTML(wd)) + '</section>' +
+    h += tasksCard() + examsCard() + goalsCard() + summaryCard() + '<div class="dash-grid"><section class="dcard dash-enter" style="--i:7"><div class="card-head"><h2>Tu semana</h2><div class="row"><div class="legend"><span style="--lc:color-mix(in srgb,var(--accent) 30%,var(--surface-2))"><i></i>Planificado</span><span style="--lc:var(--accent)"><i></i>Hecho</span></div><button class="btn small ghost" data-act="toggle-table" aria-pressed="' + !!ui.table + '">' + (ui.table ? 'Ver gráfico' : 'Ver tabla') + '</button></div></div>' + (ui.table ? barsTable(wd) : barsHTML(wd)) + '</section>' +
       '<section class="dcard dash-enter" style="--i:8"><div class="card-head"><h2>Tiempo por meta</h2></div>' + donutHTML() + '</section></div></div>';
     return h;
   }
@@ -2094,6 +2124,8 @@ var L = (function () {
       order.forEach(function (t) { var g = groups[t]; h += '<li style="' + cStyle(g.color) + '"><span class="dot"></span><span class="t">' + esc(t) + '<small>' + g.n + (g.n === 1 ? ' bloque' : ' bloques') + ' · ' + fmtDur(g.m) + '</small></span></li>'; });
       h += '</ul><p style="margin-top:14px">Tocá un hueco para agendar, arrastrá para marcar un rango, o arrastrá un bloque para moverlo.</p>';
     }
+    var pend = (state.tasks || []).filter(function (k) { return !k.done; });
+    if (pend.length) h += '<h2 style="margin-top:18px">Pendientes</h2><ul class="tk-list tk-side">' + taskRows(true) + '</ul><p class="meta">Arrastralos a la grilla o tocá Agendar.</p>';
     h += '<label class="check" style="margin-top:14px"><input type="checkbox" id="spacedSet"' + (state.settings.spaced ? ' checked' : '') + '><span><b>Repasos automáticos</b><br><span class="meta">Al terminar un bloque se agendan repasos cortos 1, 3 y 7 días después.</span></span></label>';
     h += '<div class="row" style="margin-top:6px"><button class="btn small" data-go="asistente">Armar con el asistente</button></div></aside></div>';
     return h;
@@ -2517,7 +2549,7 @@ var L = (function () {
   }
   function openCompose(o) {
     var dur = o.dur || 60;
-    ui.dialog = { type: 'compose', title: o.title || '', color: o.color || 0, blockId: o.blockId || null, date: o.date, start: o.start, dur: dur, remind: o.remind != null ? o.remind : null };
+    ui.dialog = { type: 'compose', title: o.title || '', color: o.color || 0, blockId: o.blockId || null, date: o.date, start: o.start, dur: dur, remind: o.remind != null ? o.remind : null, taskId: o.taskId || null };
     renderOverlay();
   }
 
@@ -2877,6 +2909,7 @@ var L = (function () {
         if (v.remind != null) nb.remind = v.remind;
         state.blocks.push(nb); pop[nb.id] = 1;
       });
+      if (d.taskId) state.tasks = (state.tasks || []).filter(function (k) { return k.id !== d.taskId; });
     }
     if (v.remind != null) askNotif();
     ui.pop = pop;
@@ -2888,6 +2921,24 @@ var L = (function () {
     return Math.max(START_H * 60, Math.min(Math.ceil(nm / 30) * 30, 22 * 60));
   }
 
+  document.addEventListener('dragstart', function (e) {
+    var r = e.target.closest && e.target.closest('[data-task]'); if (!r) return;
+    try { e.dataTransfer.setData('text/plain', r.dataset.task); e.dataTransfer.effectAllowed = 'move'; } catch (x) { /* nada */ }
+  });
+  document.addEventListener('dragover', function (e) {
+    var col = e.target.closest && e.target.closest('.col'); if (!col) return;
+    e.preventDefault(); col.classList.add('tk-over');
+  });
+  document.addEventListener('dragleave', function (e) { var col = e.target.closest && e.target.closest('.col'); if (col) col.classList.remove('tk-over'); });
+  document.addEventListener('drop', function (e) {
+    var col = e.target.closest && e.target.closest('.col'); if (!col) return;
+    e.preventDefault(); col.classList.remove('tk-over');
+    var id = ''; try { id = e.dataTransfer.getData('text/plain'); } catch (x) { /* nada */ }
+    var tk = (state.tasks || []).find(function (k) { return k.id === id; }); if (!tk) return;
+    var y = e.clientY - col.getBoundingClientRect().top;
+    var min = Math.max(START_H * 60, Math.min(START_H * 60 + Math.floor(y / ROW * 2) * 30, END_H * 60 - 60));
+    openCompose({ title: tk.title, color: colorFor(tk.title), date: col.dataset.date, start: min, dur: tk.dur || 60, taskId: tk.id });
+  });
   var drag = null, sel = null, suppressClick = 0;
   document.addEventListener('pointerdown', function (e) {
     if (e.pointerType === 'touch' || e.button !== 0) return;
@@ -3011,6 +3062,10 @@ var L = (function () {
     else if (act === 'target-del') { state.targets = state.targets.filter(function (x) { return x.id !== ui.dialog.id; }); ui.dialog = null; touch(); render(); }
     else if (act === 'sum-week') { ui.sum = Number(t.dataset.w); ui.sumErr = ''; render(); }
     else if (act === 'sum-ai') { summaryAsk(); }
+    else if (act === 'task-done') { var tk = (state.tasks || []).find(function (k) { return k.id === t.dataset.id; }); if (tk) { tk.done = !tk.done; touch(); render(); } }
+    else if (act === 'task-del') { state.tasks = (state.tasks || []).filter(function (k) { return k.id !== t.dataset.id; }); touch(); render(); }
+    else if (act === 'task-clear') { state.tasks = (state.tasks || []).filter(function (k) { return !k.done; }); touch(); render(); }
+    else if (act === 'task-plan') { var tp2 = (state.tasks || []).find(function (k) { return k.id === t.dataset.id; }); if (tp2) openCompose({ title: tp2.title, color: colorFor(tp2.title), date: key(new Date()), start: nextSlot(), dur: tp2.dur || 60, taskId: tp2.id }); }
     else if (act === 'exam-add') { ui.dialog = { type: 'exam', id: null, title: '', kind: 'parcial', date: key(addDays(new Date(), 7)), time: null, color: 0 }; renderOverlay(); }
     else if (act === 'exam-edit') { var xe = (state.exams || []).find(function (x) { return x.id === t.dataset.id; }); if (xe) { ui.dialog = { type: 'exam', id: xe.id, title: xe.title, kind: xe.kind, date: xe.date, time: xe.time != null ? xe.time : null, color: xe.color }; renderOverlay(); } }
     else if (act === 'exam-done') { var xd = (state.exams || []).find(function (x) { return x.id === t.dataset.id; }); if (xd) xd.done = !xd.done; if (ui.dialog) ui.dialog = null; touch(); render(); }
@@ -3171,6 +3226,12 @@ var L = (function () {
     var f = e.target;
     if (f.id === 'cForm') saveCompose();
     else if (f.id === 'exForm') saveExam();
+    else if (f.id === 'tkForm') {
+      var tv = ($('#tkInput').value || '').trim(); if (!tv) return;
+      state.tasks = state.tasks || []; if (state.tasks.length >= 100) return;
+      state.tasks.push({ id: uid('k_'), title: tv.slice(0, 100), done: false }); touch(); render();
+      var ni = $('#tkInput'); if (ni) ni.focus();
+    }
     else if (f.id === 'tgForm') saveTarget();
     else if (f.id === 'jForm') {
       var ta = $('#jText'), text = ta.value.trim();
