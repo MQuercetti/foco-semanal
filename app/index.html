@@ -241,6 +241,7 @@ textarea { width: 100%; resize: vertical; min-height: 120px; line-height: 1.45; 
 .panel.session .bar i { background: var(--on); }
 .clock { font-weight: 800; font-size: clamp(76px, 17vw, 168px); line-height: 0.9; letter-spacing: -0.06em; font-variant-numeric: tabular-nums; }
 .clock.over { opacity: 0.75; }
+.clock.brk { color: var(--accent); }
 .bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--accent); width: 0; border-radius: 4px; }
 .vol { width: 100%; accent-color: var(--accent); }
@@ -972,6 +973,7 @@ var L = (function () {
         title: str(a.title, 'Sesión', 140), goal: str(a.goal, '', 120), color: Math.abs(parseInt(a.color, 10) || 0) % 6,
         dur: Math.round(num(a.dur, 25, 1, 600)), startedAt: Number(a.startedAt),
         pausedAt: a.pausedAt && isFinite(Number(a.pausedAt)) ? Number(a.pausedAt) : null, pausedMs: num(a.pausedMs, 0, 0, 1e10),
+        pomo: isObj(a.pomo) && isFinite(Number(a.pomo.w)) && isFinite(Number(a.pomo.b)) ? { w: Math.round(num(a.pomo.w, 25, 5, 120)), b: Math.round(num(a.pomo.b, 5, 1, 60)) } : null,
         notes: typeof a.notes === 'string' ? a.notes.slice(0, 1000) : '', leaves: Math.round(num(a.leaves, 0, 0, 9999)),
         distractions: arr(a.distractions).filter(function (t) { return typeof t === 'string' && t.trim(); }).slice(0, 50).map(function (t) { return t.trim().slice(0, 140); })
       };
@@ -1622,7 +1624,7 @@ var L = (function () {
   /* ---------- Estado y guardado ---------- */
   var state = null;
   var ui = { tab: 'hoy', week: 0, dialog: null, finishing: false, flash: '', ai: { busy: null, ctl: null, stream: '', err: '', errKind: '', denied: false },
-    peek: false, enforced: false, enter: true, slide: '', pop: null, newJ: null, editJ: null, draft: '', q: '', diarioN: 30, fTitle: '', fDur: 45, mats: [], matSel: null, matErr: '',
+    peek: false, enforced: false, enter: true, slide: '', pop: null, newJ: null, editJ: null, draft: '', q: '', diarioN: 30, fTitle: '', fDur: 45, fPomo: 0, mats: [], matSel: null, matErr: '',
     chat: { msgs: [], draft: '', busy: false, auto: false, att: [], attErr: '' } };
   var ai = { sample: null, checked: false }, dl = null;
   var dbDoc = null, dbReady = false, dirty = false, saving = false, saveTimer = null, lastJson = '', pendingRender = false, beepedFor = null;
@@ -1714,6 +1716,13 @@ var L = (function () {
   }
 
   /* ---------- Piezas de pantalla ---------- */
+  /* Pomodoro: ciclos de foco + descanso; el descanso no cuenta como estudio */
+  function pomoInfo(a) {
+    var el = (a.pausedAt || Date.now()) - a.startedAt - (a.pausedMs || 0);
+    if (!a.pomo) return { focus: el, brk: false, left: 0, n: 0 };
+    var w = a.pomo.w * 60000, c = w + a.pomo.b * 60000, pos = el % c, k = Math.floor(el / c);
+    return { focus: k * w + Math.min(pos, w), brk: pos >= w, left: pos >= w ? c - pos : w - pos, n: k + 1 };
+  }
   function elapsed(a) { return (a.pausedAt || Date.now()) - a.startedAt - (a.pausedMs || 0); }
   function cStyle(c) { var n = (c || 0) % 6; return '--gc:var(--c' + n + ');--on:var(--c' + n + '-on)'; }
   function head(title, extra) { return '<div class="page-head"><h1>' + title + '</h1>' + (extra || '') + '</div>'; }
@@ -2181,6 +2190,7 @@ var L = (function () {
       '<datalist id="fTitles">' + recentTitles().map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
       '<div class="chips" role="radiogroup" aria-label="Duración">' + [25, 45, 60, 90, 120].map(function (m) { return '<button class="chip-btn" type="button" data-act="pick-dur" data-m="' + m + '" aria-pressed="' + (ui.fDur === m) + '">' + m + ' min</button>'; }).join('') +
       '<label class="field" style="display:flex;align-items:center;gap:6px;white-space:nowrap">Otra <input id="fDurCustom" type="number" min="5" max="600" step="5" style="width:78px" value="' + ([25, 45, 60, 90, 120].indexOf(ui.fDur) < 0 ? ui.fDur : '') + '" aria-label="Minutos"> min</label></div>' +
+      '<div class="chips" role="radiogroup" aria-label="Pomodoro"><span class="hint" style="align-self:center">Pomodoro</span>' + [[0, 'Sin pausas'], [25, '25 + 5'], [50, '50 + 10']].map(function (o) { return '<button class="chip-btn" type="button" data-act="pick-pomo" data-w="' + o[0] + '" aria-pressed="' + (ui.fPomo === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>' +
       '<label class="check"><input type="checkbox" id="lockSet"' + (state.settings.lock ? ' checked' : '') + '><span><b>Bloquear distracciones</b><br><span class="hint">' +
       (desktop ? 'La app pasa a pantalla completa, se queda al frente y no deja cerrarla ni minimizarla hasta que termines. Solo vas a ver el reloj y tu material de estudio.'
         : 'Pasa a pantalla completa y deja visible solo el reloj y tu material de estudio. Si salís de la ventana, queda anotado.') + '</span></span></label>' +
@@ -2225,14 +2235,19 @@ var L = (function () {
 
   /* Pantalla de estudio (bloqueo) */
   var lockBuilt = false;
+  function stateTxt(a, pi, rem) {
+    if (a.pausedAt) return 'En pausa';
+    if (a.pomo && rem > 0) return (pi.brk ? 'Descanso' : 'Foco') + ' · ciclo ' + pi.n + ' · sesión de ' + fmtDur(a.dur);
+    return rem < 0 ? 'Tiempo cumplido, podés seguir o terminar' : 'Sesión de ' + fmtDur(a.dur);
+  }
   function lockMainHTML() {
     var a = state.active;
     if (!a) return '';
-    var el = elapsed(a), total = a.dur * 60000, rem = total - el;
+    var pi = pomoInfo(a), el = pi.focus, total = a.dur * 60000, rem = total - el, shown = a.pomo ? pi.left : rem;
     var h = '<div><h2>' + esc(a.title) + '</h2></div>' +
-      '<div class="clock' + (rem < 0 ? ' over' : '') + '" id="clock">' + (rem >= 0 ? mmss(Math.ceil(rem / 1000) * 1000) : '+' + mmss(-rem)) + '</div>' +
+      '<div class="clock' + (rem < 0 ? ' over' : '') + '" id="clock">' + (shown >= 0 ? mmss(Math.ceil(shown / 1000) * 1000) : '+' + mmss(-shown)) + '</div>' +
       '<div class="bar"><i id="clockBar" style="width:' + Math.min(100, el / total * 100) + '%"></i></div>' +
-      '<div class="meta" id="clockState">' + (a.pausedAt ? 'En pausa' : rem < 0 ? 'Tiempo cumplido, podés seguir o terminar' : 'Sesión de ' + fmtDur(a.dur)) + '</div>';
+      '<div class="meta" id="clockState">' + stateTxt(a, pi, rem) + '</div>';
     if (ui.finishing) {
       h += '<p>¿Guardar la sesión de <b>' + fmtDur(Math.max(1, Math.round(el / 60000))) + '</b>?</p>' +
         '<div class="row"><button class="btn primary" data-act="focus-save">Guardar sesión</button><button class="btn ghost" data-act="focus-cancel-finish">Seguir</button>' +
@@ -2492,9 +2507,9 @@ var L = (function () {
   function updatePill() {
     var p = $('#pill'), a = state && state.active;
     if (!a || !ui.peek) { p.hidden = true; return; }
-    var rem = a.dur * 60000 - elapsed(a);
+    var pi = pomoInfo(a), rem = a.pomo ? pi.left : a.dur * 60000 - pi.focus;
     p.hidden = false;
-    p.textContent = 'Estudiando · ' + (rem >= 0 ? mmss(Math.ceil(rem / 1000) * 1000) : '+' + mmss(-rem));
+    p.textContent = (a.pomo && pi.brk ? 'Descanso · ' : 'Estudiando · ') + (rem >= 0 ? mmss(Math.ceil(rem / 1000) * 1000) : '+' + mmss(-rem));
   }
   function setEnforce(on) {
     if (on === ui.enforced) return;
@@ -2595,20 +2610,28 @@ var L = (function () {
   }
   function startFocus(title, blockId, dur, color) {
     if (state.active) { goTab('foco'); return; }
-    state.active = { actionId: '', goalId: '', blockId: blockId || null, title: String(title).slice(0, 140), goal: '', color: color || 0, dur: dur, startedAt: Date.now(), pausedAt: null, pausedMs: 0, notes: '', leaves: 0, distractions: [] };
+    state.active = { actionId: '', goalId: '', blockId: blockId || null, title: String(title).slice(0, 140), goal: '', color: color || 0, dur: dur, startedAt: Date.now(), pausedAt: null, pausedMs: 0, notes: '', leaves: 0, distractions: [], pomo: ui.fPomo ? { w: ui.fPomo, b: ui.fPomo / 5 } : null };
     ui.dialog = null; ui.finishing = false; ui.peek = false; ui.tab = 'foco';
     touch(); render(); applySound();
   }
   function startFocusBlock(b) { var i = binfo(b); startFocus(i.title, b.id, b.dur, i.color); }
+  var phaseSeen = null;
   function tick() {
     var a = state && state.active;
-    if (!a) return;
-    var el = elapsed(a), total = a.dur * 60000, rem = total - el;
+    if (!a) { phaseSeen = null; return; }
+    var pi = pomoInfo(a), el = pi.focus, total = a.dur * 60000, rem = total - el, shown = a.pomo ? pi.left : rem;
     var c = $('#clock');
-    if (c) { c.textContent = rem >= 0 ? mmss(Math.ceil(rem / 1000) * 1000) : '+' + mmss(-rem); c.classList.toggle('over', rem < 0); }
+    if (c) { c.textContent = shown >= 0 ? mmss(Math.ceil(shown / 1000) * 1000) : '+' + mmss(-shown); c.classList.toggle('over', rem < 0); c.classList.toggle('brk', !!(a.pomo && pi.brk)); }
     var bar = $('#clockBar'); if (bar) bar.style.width = Math.min(100, el / total * 100) + '%';
-    var st = $('#clockState');
-    if (st) st.textContent = a.pausedAt ? 'En pausa' : rem < 0 ? 'Tiempo cumplido, podés seguir o terminar' : 'Sesión de ' + fmtDur(a.dur);
+    var st = $('#clockState'); if (st) st.textContent = stateTxt(a, pi, rem);
+    if (a.pomo && !a.pausedAt && rem > 0) {
+      var ph = a.startedAt + ':' + pi.n + ':' + (pi.brk ? 'b' : 'w');
+      if (phaseSeen === null) phaseSeen = ph;
+      else if (phaseSeen !== ph) {
+        phaseSeen = ph; beep();
+        if (notifOK()) notifShow(pi.brk ? 'Descanso' : 'A estudiar', pi.brk ? 'Tomate ' + a.pomo.b + ' min. ' + a.title : 'Arranca el ciclo ' + pi.n + ': ' + a.title, 'pomo|' + ph);
+      }
+    }
     if (rem <= 0 && !a.pausedAt && beepedFor !== a.startedAt) { beepedFor = a.startedAt; beep(); if (!$('#lock').hidden) { renderLockMain(); } }
     updatePill();
   }
@@ -2967,6 +2990,7 @@ var L = (function () {
     else if (act === 'block-focus') { b = blockById(ui.dialog.id); if (b) startFocusBlock(b); }
     else if (act === 'tl-done') { b = blockById(t.dataset.blockId); if (b) { toggleDone(b); touch(); render(); } }
     else if (act === 'focus-start-block') { b = blockById(t.dataset.blockId); if (b) startFocusBlock(b); }
+    else if (act === 'pick-pomo') { ui.fTitle = ($('#fTitle') || {}).value || ui.fTitle; ui.fPomo = Number(t.dataset.w); render(); }
     else if (act === 'pick-dur') { ui.fTitle = ($('#fTitle') || {}).value || ui.fTitle; ui.fDur = Number(t.dataset.m); render(); }
     else if (act === 'focus-start-free') {
       var title = ($('#fTitle').value || '').trim(), custom = Number($('#fDurCustom').value);
@@ -2992,7 +3016,7 @@ var L = (function () {
       a = state.active; if (!a) return;
       var notes = String(a.notes || '') + (a.distractions.length ? (a.notes ? '\n' : '') + 'Distracciones: ' + a.distractions.join('; ') : '');
       state.sessions.push({ id: uid('f_'), actionId: a.actionId || '', goalId: a.goalId || '', title: a.title, goal: a.goal || '', color: a.color, date: key(new Date(a.startedAt)),
-        min: Math.max(1, Math.round(elapsed(a) / 60000)), notes: notes.slice(0, 1000), distractions: a.distractions.length });
+        min: Math.max(1, Math.round(pomoInfo(a).focus / 60000)), notes: notes.slice(0, 1000), distractions: a.distractions.length });
       b = a.blockId && blockById(a.blockId); if (b && !b.done) toggleDone(b);
       state.active = null; ui.finishing = false; ui.peek = false; touch(); render(); applySound();
     }
