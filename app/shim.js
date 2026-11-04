@@ -406,6 +406,10 @@
         '<hr class="fx-hr"><h2 class="fx-h">Avisos con la app cerrada</h2>' +
         '<p class="fx-hint" id="fxPushHint"></p><p class="fx-msg" id="fxPushMsg" role="status"></p>' +
         '<div class="fx-row"><button class="btn" type="button" id="fxPush" hidden></button></div>' +
+        (s ? '<hr class="fx-hr"><h2 class="fx-h">Calendario por enlace</h2>' +
+          '<p class="fx-hint" id="fxCalHint">Mirá tus bloques y exámenes en Google Calendar u otra app de calendario, y se actualizan solos.</p>' +
+          '<input class="fx-f" id="fxCalUrl" type="text" readonly hidden aria-label="Enlace del calendario"><p class="fx-msg" id="fxCalMsg" role="status"></p>' +
+          '<div class="fx-row"><button class="btn" type="button" id="fxCalOn">Crear enlace</button><button class="btn" type="button" id="fxCalCopy" hidden>Copiar enlace</button><button class="btn danger" type="button" id="fxCalOff" data-ok="0" hidden>Desactivar</button></div>' : '') +
         '<hr class="fx-hr"><h2 class="fx-h">IA del asistente</h2>' +
         '<label class="fx-f">Proveedor<select id="fxProv">' + Object.keys(PROVIDERS).map(function (k) { return '<option value="' + k + '">' + esc(PROVIDERS[k].name) + '</option>'; }).join('') + '</select></label>' +
         '<label class="fx-f">Clave de API<input id="fxKey" type="password" autocomplete="off" spellcheck="false"></label>' +
@@ -433,6 +437,29 @@
           btn.disabled = true; msg.textContent = '';
           try { if (await PUSH.status() === 'on') await PUSH.disable(); else await PUSH.enable(); } catch (e) { msg.textContent = (e && e.message) || 'No se pudo cambiar.'; }
           btn.disabled = false; var m = msg.textContent; await paint(); msg.textContent = m;
+        });
+      })();
+      if (s) (async function () {
+        var on = el.querySelector('#fxCalOn'), cp = el.querySelector('#fxCalCopy'), off = el.querySelector('#fxCalOff'), u = el.querySelector('#fxCalUrl'), msg = el.querySelector('#fxCalMsg'), hint = el.querySelector('#fxCalHint');
+        function paint(tok) {
+          msg.textContent = '';
+          if (tok) {
+            u.value = CFG.url + '/functions/v1/calendar-feed?t=' + tok; u.hidden = cp.hidden = off.hidden = false; on.hidden = true;
+            hint.textContent = 'En Google Calendar: Otros calendarios → Desde URL, y pegá este enlace. Cualquiera que tenga el enlace puede ver tus bloques, así que no lo compartas. Si se filtró, desactivalo y creá otro.';
+          } else { u.hidden = cp.hidden = off.hidden = true; on.hidden = false; hint.textContent = 'Mirá tus bloques y exámenes en Google Calendar u otra app de calendario, y se actualizan solos.'; }
+        }
+        try { var r = await sb.from('cal_feeds').select('token').eq('user_id', s.user.id).maybeSingle(); paint(r.data && r.data.token); } catch (e) { paint(null); }
+        on.addEventListener('click', async function () {
+          on.disabled = true; var tz = 'UTC'; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) { /* UTC */ }
+          try { var r = await sb.from('cal_feeds').upsert({ user_id: s.user.id, tz: tz }, { onConflict: 'user_id' }).select('token').single(); if (r.error) throw r.error; paint(r.data.token); }
+          catch (e) { msg.textContent = (e && e.message) || 'No se pudo crear el enlace.'; }
+          on.disabled = false;
+        });
+        cp.addEventListener('click', async function () { try { await navigator.clipboard.writeText(u.value); msg.textContent = 'Enlace copiado.'; } catch (e) { u.select(); msg.textContent = 'Copialo a mano.'; } });
+        off.addEventListener('click', async function () {
+          if (off.dataset.ok !== '1') { off.dataset.ok = '1'; off.textContent = 'Tocá de nuevo para desactivar'; return; }
+          try { var r = await sb.from('cal_feeds').delete().eq('user_id', s.user.id); if (r.error) throw r.error; off.dataset.ok = '0'; off.textContent = 'Desactivar'; paint(null); }
+          catch (e) { msg.textContent = (e && e.message) || 'No se pudo desactivar.'; }
         });
       })();
       var draft = JSON.parse(JSON.stringify(cfg || loadCfg() || { active: 'anthropic', providers: {} }));
