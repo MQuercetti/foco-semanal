@@ -168,8 +168,8 @@
     groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', ph: 'gsk_…' },
     deepseek: { name: 'DeepSeek', url: 'https://api.deepseek.com/v1', model: 'deepseek-chat', ph: 'sk-…' },
     mistral: { name: 'Mistral', url: 'https://api.mistral.ai/v1', model: 'mistral-large-latest', ph: '' },
-    opencode: { name: 'OpenCode Zen', url: 'https://opencode.ai/inference/openai/v1', list: 'https://opencode.ai/inference/v1', model: 'kimi-k3', ph: 'Clave de la consola de OpenCode', editUrl: true },
-    opencodego: { name: 'OpenCode Go', url: 'https://opencode.ai/inference/go/openai/v1', list: 'https://opencode.ai/inference/go/v1', model: 'kimi-k3', ph: 'Clave de OpenCode', editUrl: true },
+    opencode: { name: 'OpenCode Zen', url: 'https://opencode.ai/inference/openai/v1', list: 'https://opencode.ai/inference/v1', proxy: true, model: 'kimi-k3', ph: 'Clave de la consola de OpenCode', editUrl: true },
+    opencodego: { name: 'OpenCode Go', url: 'https://opencode.ai/inference/go/openai/v1', list: 'https://opencode.ai/inference/go/v1', proxy: true, model: 'kimi-k3', ph: 'Clave de OpenCode', editUrl: true },
     ollama: { name: 'Ollama (en tu compu)', url: 'http://localhost:11434/v1', model: 'llama3.2', ph: 'No hace falta', nokey: true, editUrl: true },
     custom: { name: 'Otro (compatible con OpenAI)', url: '', model: '', ph: 'Clave (si el servicio la pide)', nokey: true, editUrl: true }
   };
@@ -185,7 +185,7 @@
     if (!d || !u) return null;
     var key = String(u.key || '').trim(), url = String((d.editUrl ? u.url : '') || d.url || '').trim().replace(/\/+$/, ''), model = String(u.model || d.model || '').trim();
     if ((!key && !d.nokey) || !url || (!model && !loose)) return null;
-    return { id: id, kind: d.kind || 'openai', key: key, url: url, model: model, pdf: !!d.pdf, mct: !!d.mct, list: (!u.url && d.list) || '' };
+    return { id: id, kind: d.kind || 'openai', key: key, url: url, model: model, pdf: !!d.pdf, mct: !!d.mct, list: (!u.url && d.list) || '', proxy: !!d.proxy };
   }
   function activeP() { return pick(cfg); }
   async function cloudLoad() {
@@ -211,6 +211,21 @@
     if (status === 400 && /api key not valid|api_key_invalid/i.test(String(m) + body)) c = 'bad_key';
     return { code: c, message: 'HTTP ' + status + (m ? ': ' + String(m).slice(0, 160) : ''), status: status };
   }
+  /* Algunos servicios (OpenCode) no permiten llamadas directas desde el navegador (CORS):
+     con la cuenta iniciada pasan por una función propia que solo reenvía a ese servicio. */
+  async function aiFetch(P, url, init) {
+    if (P.proxy) {
+      var s = null; try { s = await currentSession(); } catch (e) { /* sin sesión */ }
+      if (s && s.access_token) {
+        var h = { authorization: 'Bearer ' + s.access_token, apikey: CFG.key, 'x-target-url': url };
+        var inh = init.headers || {};
+        if (inh.authorization) h['x-target-auth'] = inh.authorization;
+        if (inh['content-type']) h['content-type'] = inh['content-type'];
+        return fetch(CFG.url + '/functions/v1/ai-proxy', { method: init.method || 'GET', signal: init.signal, headers: h, body: init.body });
+      }
+    }
+    return fetch(url, init);
+  }
   async function listModels(c) {
     var P = pick(c, true);
     if (!P) throw { code: 'bad_key', message: 'Falta la clave o la dirección.' };
@@ -219,7 +234,7 @@
     else if (P.kind === 'gemini') { url = P.url + '/models?pageSize=200'; headers = { 'x-goog-api-key': P.key }; }
     else { url = (P.list || P.url) + '/models'; if (P.key) headers = { authorization: 'Bearer ' + P.key }; }
     var res;
-    try { res = await fetch(url, { headers: headers }); } catch (e) { throw { code: 'network', message: String(e) }; }
+    try { res = await aiFetch(P, url, { headers: headers }); } catch (e) { throw { code: 'network', message: String(e) }; }
     var tx = await res.text();
     if (!res.ok) throw httpErr(res.status, tx);
     var j = {}; try { j = JSON.parse(tx); } catch (e) { /* respuesta no JSON */ }
@@ -268,7 +283,7 @@
       body[P.mct ? 'max_completion_tokens' : 'max_tokens'] = 1800;
     }
     try {
-      res = await fetch(url, { method: 'POST', signal: opts.signal, headers: headers, body: JSON.stringify(body) });
+      res = await aiFetch(P, url, { method: 'POST', signal: opts.signal, headers: headers, body: JSON.stringify(body) });
     } catch (e) {
       if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'cancelado' };
       throw { code: 'network', message: String(e) };
