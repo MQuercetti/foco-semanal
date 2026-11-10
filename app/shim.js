@@ -497,9 +497,18 @@
       }
       show();
       $f('#fxProv').addEventListener('change', function () { stash(); prov = $f('#fxProv').value; show(); });
-      el.querySelector('#fxClose').addEventListener('click', function () { el.remove(); });
-      el.addEventListener('click', function (ev) { if (ev.target === el) el.remove(); });
       function finalCfg() { stash(); draft.active = prov; return JSON.parse(JSON.stringify(draft)); }
+      /* Al cerrar sin tocar Guardar no se pierde lo que escribiste: queda en este dispositivo
+         (la copia en la cuenta solo se actualiza con Guardar). Nunca borra una clave ya guardada. */
+      function closeDlg() {
+        try {
+          var c = finalCfg();
+          if (Object.keys(c.providers).length && JSON.stringify(c) !== JSON.stringify(cfg || loadCfg() || null)) { lsSet(K_CFG, JSON.stringify(c)); cfg = c; }
+        } catch (e) { /* no se pudo guardar */ }
+        el.remove();
+      }
+      el.querySelector('#fxClose').addEventListener('click', closeDlg);
+      el.addEventListener('click', function (ev) { if (ev.target === el) closeDlg(); });
       el.querySelector('#fxList').addEventListener('click', async function () {
         var msg = $f('#fxAiMsg'), c = finalCfg();
         msg.style.color = 'var(--ink-2)'; msg.textContent = 'Buscando modelos…';
