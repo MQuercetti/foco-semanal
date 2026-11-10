@@ -168,8 +168,8 @@
     groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', ph: 'gsk_…' },
     deepseek: { name: 'DeepSeek', url: 'https://api.deepseek.com/v1', model: 'deepseek-chat', ph: 'sk-…' },
     mistral: { name: 'Mistral', url: 'https://api.mistral.ai/v1', model: 'mistral-large-latest', ph: '' },
-    opencode: { name: 'OpenCode Zen', url: 'https://opencode.ai/zen/v1', model: 'kimi-k2.5', ph: 'Clave de la consola de OpenCode', editUrl: true },
-    opencodego: { name: 'OpenCode Go', url: 'https://opencode.ai/zen/go/v1', model: 'glm-5', ph: 'Clave de OpenCode', editUrl: true },
+    opencode: { name: 'OpenCode Zen', url: 'https://opencode.ai/inference/openai/v1', list: 'https://opencode.ai/inference/v1', model: 'kimi-k3', ph: 'Clave de la consola de OpenCode', editUrl: true },
+    opencodego: { name: 'OpenCode Go', url: 'https://opencode.ai/inference/go/openai/v1', list: 'https://opencode.ai/inference/go/v1', model: 'kimi-k3', ph: 'Clave de OpenCode', editUrl: true },
     ollama: { name: 'Ollama (en tu compu)', url: 'http://localhost:11434/v1', model: 'llama3.2', ph: 'No hace falta', nokey: true, editUrl: true },
     custom: { name: 'Otro (compatible con OpenAI)', url: '', model: '', ph: 'Clave (si el servicio la pide)', nokey: true, editUrl: true }
   };
@@ -185,7 +185,7 @@
     if (!d || !u) return null;
     var key = String(u.key || '').trim(), url = String((d.editUrl ? u.url : '') || d.url || '').trim().replace(/\/+$/, ''), model = String(u.model || d.model || '').trim();
     if ((!key && !d.nokey) || !url || (!model && !loose)) return null;
-    return { id: id, kind: d.kind || 'openai', key: key, url: url, model: model, pdf: !!d.pdf, mct: !!d.mct };
+    return { id: id, kind: d.kind || 'openai', key: key, url: url, model: model, pdf: !!d.pdf, mct: !!d.mct, list: (!u.url && d.list) || '' };
   }
   function activeP() { return pick(cfg); }
   async function cloudLoad() {
@@ -217,7 +217,7 @@
     var url, headers = {};
     if (P.kind === 'anthropic') { url = P.url + '/models?limit=100'; headers = { 'x-api-key': P.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }; }
     else if (P.kind === 'gemini') { url = P.url + '/models?pageSize=200'; headers = { 'x-goog-api-key': P.key }; }
-    else { url = P.url + '/models'; if (P.key) headers = { authorization: 'Bearer ' + P.key }; }
+    else { url = (P.list || P.url) + '/models'; if (P.key) headers = { authorization: 'Bearer ' + P.key }; }
     var res;
     try { res = await fetch(url, { headers: headers }); } catch (e) { throw { code: 'network', message: String(e) }; }
     var tx = await res.text();
@@ -475,7 +475,7 @@
         $f('#fxModel').value = u.model || ''; $f('#fxModel').placeholder = d.model || 'Nombre del modelo';
         $f('#fxUrl').value = u.url || ''; $f('#fxUrl').placeholder = d.url || 'https://…/v1';
         $f('#fxUrlW').hidden = !d.editUrl;
-        $f('#fxHint').textContent = (prov === 'opencode' || prov === 'opencodego') ? 'Usá la clave de opencode.ai. Si tu cuenta usa otra dirección, cambiala abajo. Con el modelo vacío se usa el sugerido; podés poner el que quieras (ej: kimi-k2.5, glm-5, deepseek-v4-pro).' : prov === 'ollama' ? 'Ollama corre en tu compu y no cobra. Tiene que estar abierto y permitir este origen (OLLAMA_ORIGINS).' : prov === 'custom' ? 'Sirve cualquier servicio con la API de chat de OpenAI (LM Studio, Together, Fireworks, un proxy propio…). Poné la URL base y el modelo.' : 'Las consultas se cobran según uso al proveedor. Podés dejar cargadas varias claves y cambiar de proveedor cuando quieras. Si el modelo ya no existe, escribí el nombre del vigente.';
+        $f('#fxHint').textContent = (prov === 'opencode' || prov === 'opencodego') ? 'Usá la clave de opencode.ai. Si tu cuenta usa otra dirección, cambiala abajo. Con el modelo vacío se usa el sugerido; podés poner el que quieras (ej: kimi-k3, glm-5.3, deepseek-v4-pro).' : prov === 'ollama' ? 'Ollama corre en tu compu y no cobra. Tiene que estar abierto y permitir este origen (OLLAMA_ORIGINS).' : prov === 'custom' ? 'Sirve cualquier servicio con la API de chat de OpenAI (LM Studio, Together, Fireworks, un proxy propio…). Poné la URL base y el modelo.' : 'Las consultas se cobran según uso al proveedor. Podés dejar cargadas varias claves y cambiar de proveedor cuando quieras. Si el modelo ya no existe, escribí el nombre del vigente.';
         $f('#fxAiMsg').textContent = '';
       }
       show();
