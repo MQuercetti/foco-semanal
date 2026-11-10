@@ -213,6 +213,7 @@
   }
   /* Algunos servicios (OpenCode) no permiten llamadas directas desde el navegador (CORS):
      con la cuenta iniciada pasan por una función propia que solo reenvía a ese servicio. */
+  var OC_SES = 'foco' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
   async function aiFetch(P, url, init) {
     if (P.proxy) {
       var s = null; try { s = await currentSession(); } catch (e) { /* sin sesión */ }
@@ -221,6 +222,7 @@
         var inh = init.headers || {};
         if (inh.authorization) h['x-target-auth'] = inh.authorization;
         if (inh['content-type']) h['content-type'] = inh['content-type'];
+        h['x-opencode-session'] = OC_SES;
         return fetch(CFG.url + '/functions/v1/ai-proxy', { method: init.method || 'GET', signal: init.signal, headers: h, body: init.body });
       }
     }
