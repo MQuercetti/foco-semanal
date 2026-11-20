@@ -70,6 +70,34 @@ function setLock(on) {
 }
 ipcMain.on('foco-lock', (e, on) => { if (win && !win.isDestroyed() && e.sender === win.webContents) setLock(on); });
 ipcMain.handle('foco-version', () => app.getVersion());
+/* Spotify: el inicio de sesión vuelve a una dirección local (127.0.0.1) que esta función escucha solo hasta recibir la respuesta */
+const SPOT_PORT = 8721;
+let spotBusy = false;
+ipcMain.handle('foco-spotify-login', (e, authUrl) => new Promise((resolve) => {
+  if (!win || win.isDestroyed() || e.sender !== win.webContents) { resolve({ error: 'no permitido' }); return; }
+  if (typeof authUrl !== 'string' || !authUrl.startsWith('https://accounts.spotify.com/authorize?')) { resolve({ error: 'dirección no válida' }); return; }
+  if (spotBusy) { resolve({ error: 'ya hay un inicio de sesión en curso' }); return; }
+  spotBusy = true;
+  const http = require('http');
+  let done = false, timer = null;
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://127.0.0.1:' + SPOT_PORT);
+    if (u.pathname !== '/callback') { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<!doctype html><meta charset="utf-8"><title>Foco Semanal</title><body style="font:16px system-ui;display:grid;place-items:center;height:90vh"><p>Listo. Ya podés volver a Foco Semanal y cerrar esta pestaña.</p></body>');
+    finish({ code: u.searchParams.get('code') || '', state: u.searchParams.get('state') || '', error: u.searchParams.get('error') || '' });
+  });
+  function finish(r) {
+    if (done) return; done = true; clearTimeout(timer); spotBusy = false;
+    try { server.close(); } catch (er) { /* ya cerrado */ }
+    resolve(r);
+  }
+  server.on('error', () => finish({ error: 'No se pudo abrir el puerto ' + SPOT_PORT + ' en tu compu.' }));
+  server.listen(SPOT_PORT, '127.0.0.1', () => {
+    openExternal(authUrl);
+    timer = setTimeout(() => finish({ error: 'Se agotó el tiempo de espera.' }), 180000);
+  });
+}));
 ipcMain.on('foco-win', (e, cmd) => {
   if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
   if (cmd === 'state') { win.webContents.send('foco-max', win.isMaximized()); return; }

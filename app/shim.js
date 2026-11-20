@@ -429,6 +429,12 @@
           '<p class="fx-hint" id="fxCalHint">Mirá tus bloques y exámenes en Google Calendar u otra app de calendario, y se actualizan solos.</p>' +
           '<input class="fx-f" id="fxCalUrl" type="text" readonly hidden aria-label="Enlace del calendario"><p class="fx-msg" id="fxCalMsg" role="status"></p>' +
           '<div class="fx-row"><button class="btn" type="button" id="fxCalOn">Crear enlace</button><button class="btn" type="button" id="fxCalCopy" hidden>Copiar enlace</button><button class="btn danger" type="button" id="fxCalOff" data-ok="0" hidden>Desactivar</button></div>' : '') +
+        '<hr class="fx-hr"><h2 class="fx-h">Spotify</h2>' +
+        '<p class="fx-hint">Mostrá en Foco la canción que estás escuchando. Creá una app gratis en developer.spotify.com/dashboard, agregale esta dirección en "Redirect URIs" y pegá acá su Client ID.</p>' +
+        '<label class="fx-f">Dirección de redireccionamiento<input id="fxSpRedir" type="text" readonly></label>' +
+        '<label class="fx-f">Client ID<input id="fxSpCid" type="text" autocomplete="off" spellcheck="false" placeholder="Ej: 3f9a…"></label>' +
+        '<p class="fx-msg" id="fxSpMsg" role="status"></p>' +
+        '<div class="fx-row"><button class="btn primary" type="button" id="fxSpOn">Conectar Spotify</button><button class="btn" type="button" id="fxSpCopy">Copiar dirección</button><button class="btn" type="button" id="fxSpOff" hidden>Desconectar</button></div>' +
         '<hr class="fx-hr"><h2 class="fx-h">IA del asistente</h2>' +
         '<label class="fx-f">Proveedor<select id="fxProv">' + Object.keys(PROVIDERS).map(function (k) { return '<option value="' + k + '">' + esc(PROVIDERS[k].name) + '</option>'; }).join('') + '</select></label>' +
         '<label class="fx-f">Clave de API<input id="fxKey" type="password" autocomplete="off" spellcheck="false"></label>' +
@@ -457,6 +463,20 @@
           try { if (await PUSH.status() === 'on') await PUSH.disable(); else await PUSH.enable(); } catch (e) { msg.textContent = (e && e.message) || 'No se pudo cambiar.'; }
           btn.disabled = false; var m = msg.textContent; await paint(); msg.textContent = m;
         });
+      })();
+      (function () {
+        var SP = window.FocoSpotify, cid = el.querySelector('#fxSpCid'), msg = el.querySelector('#fxSpMsg'), on = el.querySelector('#fxSpOn'), off = el.querySelector('#fxSpOff'), cp = el.querySelector('#fxSpCopy'), rd = el.querySelector('#fxSpRedir');
+        rd.value = SP.redirectUri(); cid.value = SP.clientId();
+        function paint() { var c = SP.connected(); off.hidden = !c; on.textContent = c ? 'Reconectar' : 'Conectar Spotify'; if (c) { msg.style.color = 'var(--ink-2)'; msg.textContent = 'Conectado. La canción aparece en el modo Foco.'; } }
+        paint();
+        cp.addEventListener('click', async function () { try { await navigator.clipboard.writeText(rd.value); msg.style.color = 'var(--ink-2)'; msg.textContent = 'Dirección copiada.'; } catch (e) { rd.select(); msg.textContent = 'Copiala a mano.'; } });
+        on.addEventListener('click', async function () {
+          msg.style.color = 'var(--danger)'; msg.textContent = '';
+          try { SP.setClientId(cid.value); on.disabled = true; msg.style.color = 'var(--ink-2)'; msg.textContent = 'Se abre Spotify para que des permiso…'; await SP.connect(); paint(); }
+          catch (e) { msg.style.color = 'var(--danger)'; msg.textContent = (e && e.message) || 'No se pudo conectar.'; }
+          on.disabled = false;
+        });
+        off.addEventListener('click', function () { SP.disconnect(); msg.textContent = ''; paint(); });
       })();
       if (s) (async function () {
         var on = el.querySelector('#fxCalOn'), cp = el.querySelector('#fxCalCopy'), off = el.querySelector('#fxCalOff'), u = el.querySelector('#fxCalUrl'), msg = el.querySelector('#fxCalMsg'), hint = el.querySelector('#fxCalHint');
@@ -732,4 +752,161 @@
     new MutationObserver(function (ms) { ms.forEach(function (m) { Array.prototype.forEach.call(m.addedNodes, scan); }); }).observe(document.body, { childList: true, subtree: true });
   }
   if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+})();
+
+/* Sugerencias de los campos de texto con lista (por ejemplo, el modelo de la IA):
+   reemplaza el menú nativo de <datalist> por una lista con el mismo diseño que los selectores. */
+(function () {
+  'use strict';
+  var cur = null; // { inp, pop, items, act, cleanup }
+  function opts(inp, dl) { return Array.prototype.map.call(dl.options, function (o) { return o.value; }).filter(Boolean); }
+  function close() { if (!cur) return; var c = cur; cur = null; c.cleanup(); c.pop.remove(); c.inp.setAttribute('aria-expanded', 'false'); }
+  function setAct(c, i) {
+    if (c.items[c.act]) c.items[c.act].classList.remove('act');
+    c.act = i; var el = c.items[i]; if (!el) return;
+    el.classList.add('act');
+    var p = c.pop, t = el.offsetTop, b = t + el.offsetHeight;
+    if (t < p.scrollTop + 4) p.scrollTop = Math.max(0, t - 4); else if (b > p.scrollTop + p.clientHeight - 4) p.scrollTop = b - p.clientHeight + 4;
+  }
+  function pick(c, v) { c.inp.value = v; close(); c.inp.dispatchEvent(new Event('input', { bubbles: true })); c.inp.dispatchEvent(new Event('change', { bubbles: true })); }
+  function open(inp, all) {
+    var dl = inp.__dl, list = opts(inp, dl), q = all ? '' : inp.value.trim().toLowerCase();
+    if (q) list = list.filter(function (v) { return v.toLowerCase().indexOf(q) >= 0; });
+    if (!list.length || (list.length === 1 && list[0] === inp.value)) { close(); return; }
+    if (cur && cur.inp === inp) close(); else close();
+    var pop = document.createElement('div'); pop.className = 'ss-pop'; pop.setAttribute('role', 'listbox');
+    var c = { inp: inp, pop: pop, items: [], act: -1 };
+    list.slice(0, 200).forEach(function (v) {
+      var el = document.createElement('div'); el.className = 'ss-o'; el.setAttribute('role', 'option');
+      el.setAttribute('aria-selected', v === inp.value ? 'true' : 'false');
+      var tx = document.createElement('span'); tx.className = 'ss-x'; tx.textContent = v; el.appendChild(tx);
+      el.addEventListener('click', function () { pick(c, v); }); pop.appendChild(el); c.items.push(el);
+    });
+    pop.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    document.body.appendChild(pop);
+    var r = inp.getBoundingClientRect(), vh = window.innerHeight, below = vh - r.bottom - 12, above = r.top - 12;
+    var up = below < 200 && above > below, mh = Math.max(120, Math.min(300, up ? above : below));
+    pop.style.minWidth = r.width + 'px'; pop.style.maxHeight = mh + 'px';
+    var ph = Math.min(pop.scrollHeight, mh);
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8)) + 'px';
+    pop.style.top = (up ? r.top - ph - 6 : r.bottom + 6) + 'px'; pop.classList.toggle('up', up);
+    var onDown = function (e) { if (!pop.contains(e.target) && e.target !== inp) close(); };
+    var onScroll = function (e) { if (!pop.contains(e.target)) close(); };
+    document.addEventListener('pointerdown', onDown, true); window.addEventListener('scroll', onScroll, true); window.addEventListener('resize', close);
+    c.cleanup = function () { document.removeEventListener('pointerdown', onDown, true); window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', close); };
+    cur = c; inp.setAttribute('aria-expanded', 'true');
+    var sel = list.indexOf(inp.value); if (sel >= 0) setAct(c, sel);
+    requestAnimationFrame(function () { if (cur === c) pop.classList.add('in'); });
+  }
+  function enhance(inp) {
+    if (inp.__dl) return;
+    var dl = document.getElementById(inp.getAttribute('list')); if (!dl) return;
+    inp.__dl = dl; inp.removeAttribute('list');
+    inp.setAttribute('role', 'combobox'); inp.setAttribute('aria-autocomplete', 'list'); inp.setAttribute('aria-expanded', 'false');
+    inp.addEventListener('focus', function () { open(inp, true); });
+    inp.addEventListener('click', function () { if (!cur || cur.inp !== inp) open(inp, true); });
+    inp.addEventListener('input', function () { open(inp, false); });
+    inp.addEventListener('blur', function () { setTimeout(function () { if (cur && cur.inp === inp) close(); }, 120); });
+    inp.addEventListener('keydown', function (e) {
+      var k = e.key;
+      if (!cur || cur.inp !== inp) { if (k === 'ArrowDown') { e.preventDefault(); open(inp, true); } return; }
+      var n = cur.items.length;
+      if (k === 'ArrowDown') { e.preventDefault(); setAct(cur, (cur.act + 1) % n); }
+      else if (k === 'ArrowUp') { e.preventDefault(); setAct(cur, (cur.act - 1 + n) % n); }
+      else if (k === 'Enter' && cur.act >= 0) { e.preventDefault(); pick(cur, cur.items[cur.act].textContent); }
+      else if (k === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+      else if (k === 'Tab') close();
+    });
+  }
+  function scan(root) {
+    if (!root || root.nodeType !== 1) return;
+    if (root.matches && root.matches('input[list]')) enhance(root);
+    else if (root.querySelectorAll) Array.prototype.forEach.call(root.querySelectorAll('input[list]'), enhance);
+  }
+  function start() {
+    scan(document.body);
+    new MutationObserver(function (ms) { ms.forEach(function (m) { Array.prototype.forEach.call(m.addedNodes, scan); }); }).observe(document.body, { childList: true, subtree: true });
+  }
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+})();
+
+
+/* Spotify: muestra la canción que está sonando. Inicio de sesión con PKCE (sin secretos): el Client ID
+   es el de tu propia app en developer.spotify.com. Los permisos son solo de lectura. */
+(function () {
+  'use strict';
+  var K = 'foco-spotify', KP = 'foco-spotify-pkce', SCOPE = 'user-read-currently-playing user-read-playback-state';
+  var API = 'https://api.spotify.com/v1', ACC = 'https://accounts.spotify.com';
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* sin almacenamiento */ } }
+  function load() { try { var o = JSON.parse(lsGet(K) || '{}'); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } }
+  function save(o) { lsSet(K, JSON.stringify(o)); }
+  function desktop() { return !!(window.focoDesktop && window.focoDesktop.spotifyLogin); }
+  function redirectUri() { return desktop() ? 'http://127.0.0.1:8721/callback' : location.origin + location.pathname; }
+  function rnd(n) { var a = new Uint8Array(n); crypto.getRandomValues(a); return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join(''); }
+  function b64u(buf) { var s = '', a = new Uint8Array(buf); for (var i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  async function challenge(v) { return b64u(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v))); }
+  async function tokenReq(params) {
+    var r = await fetch(ACC + '/api/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params).toString() });
+    var j = null; try { j = await r.json(); } catch (e) { /* sin cuerpo */ }
+    if (!r.ok || !j || !j.access_token) throw new Error(j && j.error_description ? 'Spotify: ' + j.error_description : 'Spotify no aceptó el permiso (' + r.status + ').');
+    return j;
+  }
+  function store(j, keepRefresh) {
+    var o = load(); o.access = j.access_token; o.exp = Date.now() + (Number(j.expires_in) || 3600) * 1000;
+    if (j.refresh_token) o.refresh = j.refresh_token; else if (!keepRefresh) delete o.refresh;
+    save(o);
+  }
+  async function exchange(code, verifier) {
+    var o = load();
+    store(await tokenReq({ grant_type: 'authorization_code', code: code, redirect_uri: redirectUri(), client_id: o.cid, code_verifier: verifier }), false);
+  }
+  async function token() {
+    var o = load(); if (!o.refresh || !o.cid) return null;
+    if (o.access && o.exp > Date.now() + 60000) return o.access;
+    try { store(await tokenReq({ grant_type: 'refresh_token', refresh_token: o.refresh, client_id: o.cid }), true); }
+    catch (e) { if (/invalid_grant|revoked/i.test(String(e.message))) { var c = load(); delete c.access; delete c.refresh; save(c); } return null; }
+    return load().access;
+  }
+  async function connect() {
+    var o = load(); if (!o.cid) throw new Error('Pegá primero el Client ID de tu app de Spotify.');
+    var verifier = rnd(48), state = rnd(12);
+    lsSet(KP, JSON.stringify({ v: verifier, s: state, r: redirectUri() }));
+    var url = ACC + '/authorize?' + new URLSearchParams({ client_id: o.cid, response_type: 'code', redirect_uri: redirectUri(), scope: SCOPE, state: state, code_challenge_method: 'S256', code_challenge: await challenge(verifier) }).toString();
+    if (desktop()) {
+      var r = await window.focoDesktop.spotifyLogin(url);
+      lsDel(KP);
+      if (!r || r.error || !r.code) throw new Error(r && r.error === 'access_denied' ? 'No diste el permiso en Spotify.' : (r && r.error) || 'No se pudo conectar.');
+      if (r.state !== state) throw new Error('La respuesta de Spotify no coincide. Probá de nuevo.');
+      await exchange(r.code, verifier);
+    } else { location.assign(url); await new Promise(function () { /* la página se va a Spotify */ }); }
+  }
+  function disconnect() { var o = load(); save({ cid: o.cid }); }
+  async function now() {
+    var t = await token(); if (!t) return { connected: false };
+    var r; try { r = await fetch(API + '/me/player/currently-playing?additional_types=track,episode', { headers: { authorization: 'Bearer ' + t } }); } catch (e) { return { connected: true, error: true }; }
+    if (r.status === 204) return { connected: true, playing: false };
+    if (r.status === 401) { var c = load(); delete c.access; c.exp = 0; save(c); return { connected: true, error: true }; }
+    if (r.status === 429 || !r.ok) return { connected: true, error: true };
+    var j = null; try { j = await r.json(); } catch (e) { /* vacío */ }
+    var it = j && j.item; if (!it) return { connected: true, playing: false };
+    var by = it.artists ? it.artists.map(function (a) { return a.name; }).join(', ') : (it.show && it.show.name) || '';
+    return { connected: true, playing: !!j.is_playing, title: it.name || '', artist: by };
+  }
+  window.FocoSpotify = {
+    redirectUri: redirectUri, clientId: function () { return load().cid || ''; },
+    setClientId: function (v) { v = String(v || '').trim(); if (v && !/^[A-Za-z0-9]{16,64}$/.test(v)) throw new Error('El Client ID no parece válido (son letras y números).'); var o = load(); if (o.cid !== v) { o = { cid: v }; } save(o); },
+    connected: function () { var o = load(); return !!(o.cid && o.refresh); },
+    connect: connect, disconnect: disconnect, now: now
+  };
+  /* Vuelta del inicio de sesión en la versión web/teléfono: la página regresa con ?code=… */
+  (function back() {
+    try {
+      var q = new URLSearchParams(location.search), code = q.get('code'), st = q.get('state'), err = q.get('error'), p = JSON.parse(lsGet(KP) || 'null');
+      if (!p || !st || st !== p.s || !(code || err)) return;
+      lsDel(KP); history.replaceState(null, '', location.pathname + location.hash);
+      if (code) exchange(code, p.v).then(function () { window.dispatchEvent(new Event('foco-spotify')); }).catch(function () { /* se ve al volver a abrir Cuenta */ });
+    } catch (e) { /* sin parámetros */ }
+  })();
 })();

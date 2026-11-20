@@ -244,7 +244,30 @@ textarea { width: 100%; resize: vertical; min-height: 120px; line-height: 1.45; 
 .clock.brk { color: var(--accent); }
 .bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--accent); width: 0; border-radius: 4px; }
-.vol { width: 100%; accent-color: var(--accent); }
+.vol { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; padding: 0; margin: 0; background: transparent; border: 0; cursor: pointer; --vc: var(--accent); --v: 40%; }
+.vol::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: linear-gradient(to right, var(--vc) var(--v), color-mix(in srgb, var(--ink) 16%, transparent) var(--v)); }
+.vol::-moz-range-track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 16%, transparent); }
+.vol::-moz-range-progress { height: 6px; border-radius: 999px; background: var(--vc); }
+.vol::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; border-radius: 50%; border: 0; background: var(--vc); box-shadow: 0 0 0 4px color-mix(in srgb, var(--vc) 0%, transparent); transition: box-shadow 140ms ease, transform 140ms cubic-bezier(.23,1,.32,1); }
+.vol::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; border: 0; background: var(--vc); transition: box-shadow 140ms ease, transform 140ms cubic-bezier(.23,1,.32,1); }
+.vol:focus-visible { outline: none; }
+.vol:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--vc) 30%, transparent); }
+.vol:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--vc) 30%, transparent); }
+.vol:active::-webkit-slider-thumb { transform: scale(1.12); }
+.vol:active::-moz-range-thumb { transform: scale(1.12); }
+.clock.hid { font-size: clamp(44px, 9vw, 84px); opacity: 0.35; letter-spacing: 0.02em; }
+.np { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; }
+.np:empty { display: none; }
+.np .np-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np.off { opacity: 0.55; }
+.np-eq { flex: none; display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+.np-eq i { width: 3px; height: 100%; background: currentColor; border-radius: 2px; transform-origin: bottom; animation: np-b 900ms ease-in-out infinite; }
+.np-eq i:nth-child(2) { animation-delay: -300ms; } .np-eq i:nth-child(3) { animation-delay: -600ms; }
+.np.off .np-eq i { animation: none; transform: scaleY(0.35); }
+@keyframes np-b { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .np-eq i { animation: none; transform: scaleY(0.6); } }
+.tbtn { background: none; border: 0; padding: 4px 8px; margin: -4px 0 0 -8px; border-radius: 8px; cursor: pointer; font-size: 13px; opacity: 0.7; justify-self: start; }
+@media (hover: hover) and (pointer: fine) { .tbtn:hover { opacity: 1; background: var(--fill, transparent); } }
 
 /* Coaching */
 .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
@@ -435,7 +458,7 @@ body.locked { overflow: hidden; }
 .lock-main .field { color: var(--on); opacity: 0.9; }
 .lock-main .x { color: var(--on); }
 .lock-main .list li { border-color: color-mix(in srgb, var(--on) 22%, transparent); }
-.lock-main .vol { accent-color: var(--on); }
+.lock-main .vol { --vc: var(--on); }
 .lock-main .two { align-items: end; }
 .hold { position: relative; overflow: hidden; }
 .hold .hold-fill { position: absolute; inset: 0; background: var(--on); opacity: 0.3; clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); pointer-events: none; }
@@ -1043,7 +1066,7 @@ var L = (function () {
     out.journal.sort(function (x, y) { return x.ts - y.ts; });
     out.journal = out.journal.slice(-2000);
     var st2 = isObj(s.settings) ? s.settings : {};
-    out.settings = { sound: SOUNDS.indexOf(st2.sound) >= 0 ? st2.sound : 'off', volume: num(st2.volume, 0.4, 0, 1), capacity: Math.round(num(st2.capacity, 20, 1, 100)), lock: st2.lock !== false, spaced: st2.spaced !== false, theme: ['auto', 'light', 'dark'].indexOf(st2.theme) >= 0 ? st2.theme : 'auto', accent: ['indigo', 'teal', 'rose', 'amber', 'violet', 'forest', 'graphite'].indexOf(st2.accent) >= 0 ? st2.accent : 'indigo' };
+    out.settings = { sound: SOUNDS.indexOf(st2.sound) >= 0 ? st2.sound : 'off', volume: num(st2.volume, 0.4, 0, 1), capacity: Math.round(num(st2.capacity, 20, 1, 100)), lock: st2.lock !== false, spaced: st2.spaced !== false, hideTime: st2.hideTime === true, theme: ['auto', 'light', 'dark'].indexOf(st2.theme) >= 0 ? st2.theme : 'auto', accent: ['indigo', 'teal', 'rose', 'amber', 'violet', 'forest', 'graphite'].indexOf(st2.accent) >= 0 ? st2.accent : 'indigo' };
     return out;
   }
 
@@ -2305,14 +2328,34 @@ var L = (function () {
     if (a.pomo && rem > 0) return (pi.brk ? 'Descanso' : 'Foco') + ' · ciclo ' + pi.n + ' · sesión de ' + fmtDur(a.dur);
     return rem < 0 ? 'Tiempo cumplido, podés seguir o terminar' : 'Sesión de ' + fmtDur(a.dur);
   }
+  /* Spotify: canción que suena (si conectaste Spotify en Cuenta) */
+  function npInner() {
+    var n = ui.np;
+    if (!n || !n.title) return '';
+    return '<span class="np-eq" aria-hidden="true"><i></i><i></i><i></i></span><span class="np-t"><b>' + esc(n.title) + '</b>' + (n.artist ? ' · ' + esc(n.artist) : '') + (n.playing ? '' : ' · en pausa') + '</span>';
+  }
+  var npBusy = false, npLast = 0;
+  function npPoll(force) {
+    var SP = window.FocoSpotify;
+    if (!SP || !SP.connected() || !state.active || document.hidden || npBusy) return;
+    if (!force && Date.now() - npLast < 6000) return;
+    npBusy = true; npLast = Date.now();
+    SP.now().then(function (r) {
+      ui.np = r && r.title ? { title: r.title, artist: r.artist, playing: !!r.playing } : null;
+      var el = $('#np'); if (el) { el.innerHTML = npInner(); el.classList.toggle('off', !!(ui.np && !ui.np.playing)); }
+    }).catch(function () { /* sin red */ }).then(function () { npBusy = false; });
+  }
+  function clockTxt(ms) { return state.settings.hideTime ? '••:••' : ms >= 0 ? mmss(Math.ceil(ms / 1000) * 1000) : '+' + mmss(-ms); }
   function lockMainHTML() {
     var a = state.active;
     if (!a) return '';
     var pi = pomoInfo(a), el = pi.focus, total = a.dur * 60000, rem = total - el, shown = a.pomo ? pi.left : rem;
     var h = '<div><h2>' + esc(a.title) + '</h2></div>' +
-      '<div class="clock' + (rem < 0 ? ' over' : '') + '" id="clock">' + (shown >= 0 ? mmss(Math.ceil(shown / 1000) * 1000) : '+' + mmss(-shown)) + '</div>' +
-      '<div class="bar"><i id="clockBar" style="width:' + Math.min(100, el / total * 100) + '%"></i></div>' +
-      '<div class="meta" id="clockState">' + stateTxt(a, pi, rem) + '</div>';
+      '<div class="clock' + (rem < 0 ? ' over' : '') + (state.settings.hideTime ? ' hid' : '') + '" id="clock">' + clockTxt(shown) + '</div>' +
+      (state.settings.hideTime ? '' : '<div class="bar"><i id="clockBar" style="width:' + Math.min(100, el / total * 100) + '%"></i></div>') +
+      '<button class="tbtn" type="button" data-act="toggle-time">' + (state.settings.hideTime ? 'Mostrar el tiempo' : 'Ocultar el tiempo') + '</button>' +
+      '<div class="meta" id="clockState">' + stateTxt(a, pi, rem) + '</div>' +
+      '<div class="np' + (ui.np && !ui.np.playing ? ' off' : '') + '" id="np">' + npInner() + '</div>';
     if (ui.finishing) {
       h += '<p>¿Guardar la sesión de <b>' + fmtDur(Math.max(1, Math.round(el / 60000))) + '</b>?</p>' +
         '<div class="row"><button class="btn primary" data-act="focus-save">Guardar sesión</button><button class="btn ghost" data-act="focus-cancel-finish">Seguir</button>' +
@@ -2325,7 +2368,7 @@ var L = (function () {
     }
     h += '<div class="two"><label class="field">Sonido de fondo<select id="soundSel">' +
       L.SOUNDS.map(function (s) { return '<option value="' + s + '"' + (state.settings.sound === s ? ' selected' : '') + '>' + SOUND_NAMES[s] + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field">Volumen<input class="vol" id="vol" type="range" min="0" max="1" step="0.05" value="' + state.settings.volume + '"></label></div>' +
+      '<label class="field">Volumen<input class="vol" id="vol" type="range" min="0" max="1" step="0.05" value="' + state.settings.volume + '" style="--v:' + Math.round(state.settings.volume * 100) + '%"></label></div>' +
       '<label class="field">Notas de la sesión<textarea id="notes" maxlength="1000" placeholder="Qué hiciste, qué quedó trabado, qué sigue">' + esc(a.notes || '') + '</textarea></label>' +
       '<form id="distForm" class="row-form" style="max-width:none"><label class="sr" for="distInput">Distracción</label><input id="distInput" type="text" maxlength="140" autocomplete="off" placeholder="¿Algo te distrajo? Anotalo y volvé">' +
       '<button class="btn" type="submit">Anotar</button></form>';
@@ -2574,7 +2617,7 @@ var L = (function () {
     if (!a || !ui.peek) { p.hidden = true; return; }
     var pi = pomoInfo(a), rem = a.pomo ? pi.left : a.dur * 60000 - pi.focus;
     p.hidden = false;
-    p.textContent = (a.pomo && pi.brk ? 'Descanso · ' : 'Estudiando · ') + (rem >= 0 ? mmss(Math.ceil(rem / 1000) * 1000) : '+' + mmss(-rem));
+    p.textContent = (a.pomo && pi.brk ? 'Descanso' : 'Estudiando') + (state.settings.hideTime ? '' : ' · ' + (rem >= 0 ? mmss(Math.ceil(rem / 1000) * 1000) : '+' + mmss(-rem)));
   }
   function setEnforce(on) {
     if (on === ui.enforced) return;
@@ -2686,9 +2729,10 @@ var L = (function () {
     if (!a) { phaseSeen = null; return; }
     var pi = pomoInfo(a), el = pi.focus, total = a.dur * 60000, rem = total - el, shown = a.pomo ? pi.left : rem;
     var c = $('#clock');
-    if (c) { c.textContent = shown >= 0 ? mmss(Math.ceil(shown / 1000) * 1000) : '+' + mmss(-shown); c.classList.toggle('over', rem < 0); c.classList.toggle('brk', !!(a.pomo && pi.brk)); }
+    if (c) { c.textContent = clockTxt(shown); c.classList.toggle('over', rem < 0); c.classList.toggle('brk', !!(a.pomo && pi.brk)); }
     var bar = $('#clockBar'); if (bar) bar.style.width = Math.min(100, el / total * 100) + '%';
     var st = $('#clockState'); if (st) st.textContent = stateTxt(a, pi, rem);
+    npPoll(false);
     if (a.pomo && !a.pausedAt && rem > 0) {
       var ph = a.startedAt + ':' + pi.n + ':' + (pi.brk ? 'b' : 'w');
       if (phaseSeen === null) phaseSeen = ph;
@@ -3089,6 +3133,7 @@ var L = (function () {
     else if (act === 'focus-back') { ui.peek = false; render(); }
     else if (act === 'focus-peek') { ui.peek = true; render(); }
     else if (act === 'refull') { try { document.documentElement.requestFullscreen().then(renderLock, renderLock); } catch (er) { renderLock(); } }
+    else if (act === 'toggle-time') { state.settings.hideTime = !state.settings.hideTime; touch(); renderLockMain(); tick(); updatePill(); }
     else if (act === 'focus-pause') {
       a = state.active; if (!a) return;
       if (a.pausedAt) { a.pausedMs = (a.pausedMs || 0) + (Date.now() - a.pausedAt); a.pausedAt = null; } else a.pausedAt = Date.now();
@@ -3198,7 +3243,7 @@ var L = (function () {
     }
     else if (el.id === 'cStart' || el.id === 'cEnd') checkCompose();
     else if (el.id === 'notes' && state.active) { state.active.notes = el.value; touch(); }
-    else if (el.id === 'vol') { state.settings.volume = Math.max(0, Math.min(1, Number(el.value) || 0)); touch(); applySound(); }
+    else if (el.id === 'vol') { state.settings.volume = Math.max(0, Math.min(1, Number(el.value) || 0)); el.style.setProperty('--v', Math.round(state.settings.volume * 100) + '%'); touch(); applySound(); }
     else if (el.id === 'jText') ui.draft = el.value;
     else if (el.id === 'chatText') { ui.chat.draft = el.value; chatFit(el); }
     else if (el.id === 'fTitle') ui.fTitle = el.value;
